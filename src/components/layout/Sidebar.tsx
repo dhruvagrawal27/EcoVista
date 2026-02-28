@@ -6,7 +6,34 @@ import {
   FileText, Map, Building2, Users, Trophy, Award, Shield, Settings,
   ChevronLeft, ChevronRight, Rocket,
 } from "lucide-react";
-import { sidebarNavItems } from "@/lib/mock-data";
+const sidebarNavItems = {
+  main: [
+    { label: "Dashboard", icon: "LayoutDashboard", route: "/dashboard" },
+    { label: "Mission Control", icon: "Rocket", route: "/mission-control" },
+    { label: "Energy Monitoring", icon: "Zap", route: "/energy" },
+    { label: "Renewable Energy", icon: "Sun", route: "/renewables" },
+    { label: "Carbon Tracking", icon: "Leaf", route: "/carbon" },
+    { label: "AI Insights", icon: "Brain", route: "/insights" },
+  ],
+  analytics: [
+    { label: "Sustainability KPIs", icon: "Target", route: "/kpis" },
+    { label: "Cost & Finance", icon: "DollarSign", route: "/finance" },
+    { label: "Reports", icon: "FileText", route: "/reports" },
+  ],
+  planning: [
+    { label: "Net-Zero Roadmap", icon: "Map", route: "/roadmap" },
+    { label: "Campus Projects", icon: "Building2", route: "/projects" },
+  ],
+  engagement: [
+    { label: "Community", icon: "Users", route: "/community" },
+    { label: "Leaderboard", icon: "Trophy", route: "/leaderboard" },
+    { label: "Eco Challenges", icon: "Award", route: "/challenges" },
+  ],
+  system: [
+    { label: "Admin Panel", icon: "Shield", route: "/admin" },
+    { label: "Settings", icon: "Settings", route: "/settings" },
+  ],
+};
 
 const iconMap: Record<string, React.ComponentType<any>> = {
   LayoutDashboard, Zap, Sun, Leaf, Brain, Target, DollarSign,

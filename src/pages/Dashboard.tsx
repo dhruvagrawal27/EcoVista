@@ -7,13 +7,19 @@ import BuildingRanking from "@/components/dashboard/BuildingRanking";
 import EnergyByType from "@/components/dashboard/EnergyByType";
 import RenewableGrid from "@/components/dashboard/RenewableGrid";
 import QuickActions from "@/components/dashboard/QuickActions";
-import { campusMetrics } from "@/lib/mock-data";
 import { Activity, Zap, Sun, Leaf, IndianRupee, Rocket } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
+import { useCampusContext } from "@/context/CampusContext";
+import { useLatestEnergyDailySummary } from "@/hooks/useEnergy";
+import { Skeleton } from "@/components/ui/skeleton";
 
 const Dashboard = () => {
   const navigate = useNavigate();
+  const { campus, campusId, isLoading: campusLoading } = useCampusContext();
+  const { data: todaySummary, isLoading: summaryLoading } = useLatestEnergyDailySummary(campusId);
+
+  const isLoading = campusLoading || summaryLoading;
 
   return (
     <DashboardLayout title="Dashboard" breadcrumb="Campus Overview · Real-time">
@@ -39,38 +45,50 @@ const Dashboard = () => {
 
         {/* Top Metrics */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-          <MetricCard
-            title="Net-Zero Progress"
-            value={`${campusMetrics.netZeroProgress}%`}
-            subtitle={`Target: ${campusMetrics.targetYear}`}
-            icon={<Activity className="w-5 h-5 text-primary" />}
-            progress={campusMetrics.netZeroProgress}
-          />
-          <MetricCard
-            title="Live Energy"
-            value={`${campusMetrics.liveEnergy.toLocaleString()} kW`}
-            icon={<Zap className="w-5 h-5 text-primary" />}
-            trend={-3.2}
-          />
-          <MetricCard
-            title="Solar Today"
-            value={`${(campusMetrics.solarToday / 1000).toFixed(1)} MWh`}
-            subtitle={`Target: ${(campusMetrics.solarTarget / 1000).toFixed(0)} MWh`}
-            icon={<Sun className="w-5 h-5 text-primary" />}
-            progress={(campusMetrics.solarToday / campusMetrics.solarTarget) * 100}
-          />
-          <MetricCard
-            title="Carbon Today"
-            value={`${campusMetrics.carbonToday.toLocaleString()} kg`}
-            icon={<Leaf className="w-5 h-5 text-primary" />}
-            trend={-((1 - campusMetrics.carbonToday / campusMetrics.carbonYesterday) * 100)}
-          />
-          <MetricCard
-            title="Cost Savings"
-            value={`₹${(campusMetrics.costSavings / 1000).toFixed(0)}K`}
-            icon={<IndianRupee className="w-5 h-5 text-primary" />}
-            trend={-campusMetrics.costTrend}
-          />
+          {isLoading ? (
+            Array.from({ length: 5 }).map((_, i) => (
+              <Skeleton key={i} className="h-28 w-full rounded-xl" />
+            ))
+          ) : (
+            <>
+              <MetricCard
+                title="Net-Zero Progress"
+                value={`${campus?.net_zero_progress ?? 0}%`}
+                subtitle={`Target: ${campus?.target_year ?? "—"}`}
+                icon={<Activity className="w-5 h-5 text-primary" />}
+                progress={campus?.net_zero_progress ?? 0}
+              />
+              <MetricCard
+                title="Live Energy"
+                value={`${((todaySummary?.peak_demand_kw ?? 0)).toLocaleString()} kW`}
+                icon={<Zap className="w-5 h-5 text-primary" />}
+                trend={-3.2}
+              />
+              <MetricCard
+                title="Solar Today"
+                value={`${((todaySummary?.solar_kwh ?? 0) / 1000).toFixed(1)} MWh`}
+                subtitle={`Total: ${((todaySummary?.total_kwh ?? 0) / 1000).toFixed(1)} MWh`}
+                icon={<Sun className="w-5 h-5 text-primary" />}
+                progress={
+                  todaySummary?.total_kwh
+                    ? ((todaySummary.solar_kwh ?? 0) / todaySummary.total_kwh) * 100
+                    : 0
+                }
+              />
+              <MetricCard
+                title="Carbon Today"
+                value={`${(todaySummary?.carbon_kg ?? 0).toLocaleString()} kg`}
+                icon={<Leaf className="w-5 h-5 text-primary" />}
+                trend={-2.4}
+              />
+              <MetricCard
+                title="Cost Savings"
+                value={`₹${((todaySummary?.cost_inr ?? 0) / 1000).toFixed(0)}K`}
+                icon={<IndianRupee className="w-5 h-5 text-primary" />}
+                trend={-1.8}
+              />
+            </>
+          )}
         </div>
 
         {/* Main Chart + Insights */}

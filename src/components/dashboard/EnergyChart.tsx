@@ -1,9 +1,30 @@
 import { useState } from "react";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from "recharts";
-import { energyTimeSeries } from "@/lib/mock-data";
+import { useCampusContext } from "@/context/CampusContext";
+import { useEnergyReadings } from "@/hooks/useEnergy";
+import { Skeleton } from "@/components/ui/skeleton";
 
 const EnergyChart = () => {
   const [showPredicted, setShowPredicted] = useState(true);
+  const { campusId } = useCampusContext();
+  const { data: readings, isLoading } = useEnergyReadings(campusId, 24);
+
+  const chartData = (readings ?? []).map((r) => ({
+    hour: new Date(r.recorded_at).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: false }),
+    actual: r.actual_kw ?? 0,
+    predicted: r.predicted_kw ?? 0,
+    solar: r.solar_kw ?? 0,
+  }));
+
+  if (isLoading) {
+    return (
+      <div className="glass-card grain-overlay p-5 h-full">
+        <Skeleton className="h-6 w-48 mb-2" />
+        <Skeleton className="h-4 w-64 mb-6" />
+        <Skeleton className="h-[280px] w-full rounded-xl" />
+      </div>
+    );
+  }
 
   return (
     <div className="glass-card grain-overlay p-5 h-full">
@@ -25,15 +46,12 @@ const EnergyChart = () => {
           </button>
           <select className="bg-muted/50 border border-border rounded-full px-3 py-1.5 text-xs text-foreground focus:outline-none">
             <option>All Buildings</option>
-            <option>Science Block</option>
-            <option>Library</option>
-            <option>Engineering</option>
           </select>
         </div>
       </div>
 
       <ResponsiveContainer width="100%" height={280}>
-        <AreaChart data={energyTimeSeries}>
+        <AreaChart data={chartData}>
           <defs>
             <linearGradient id="actualGrad" x1="0" y1="0" x2="0" y2="1">
               <stop offset="5%" stopColor="hsl(161, 93%, 30%)" stopOpacity={0.3} />

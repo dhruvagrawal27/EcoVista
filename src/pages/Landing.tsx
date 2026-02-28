@@ -1,11 +1,27 @@
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Leaf, Zap, Sun, IndianRupee, Brain, Settings, TrendingUp, ArrowRight, ChevronRight } from "lucide-react";
-import { liveMetricsStrip, landingFeatures } from "@/lib/mock-data";
-
 const iconMap: Record<string, React.ComponentType<any>> = {
   Zap, Leaf, Sun, IndianRupee, Brain, Settings, TrendingUp,
 };
+
+const liveMetricsStrip = [
+  { label: "Solar Generated Today", value: "1.24 MWh", icon: "Sun" },
+  { label: "Grid Consumption", value: "3.87 MWh", icon: "Zap" },
+  { label: "Carbon Offset", value: "0.62 tCO₂", icon: "Leaf" },
+  { label: "Energy Cost Today", value: "₹18,400", icon: "IndianRupee" },
+];
+
+const landingFeatures = [
+  { title: "Energy Intelligence", description: "Real-time monitoring of energy consumption across all campus buildings.", icon: "Zap" },
+  { title: "Carbon Tracking", description: "Scope 1, 2 & 3 emissions tracking with automated reporting.", icon: "Leaf" },
+  { title: "Solar & Renewables", description: "Monitor renewable generation and battery storage in real time.", icon: "Sun" },
+  { title: "Finance Insights", description: "Track energy costs, green investments, and ROI automatically.", icon: "IndianRupee" },
+  { title: "AI Recommendations", description: "Actionable AI-powered insights to reduce costs and emissions.", icon: "Brain" },
+  { title: "Sustainability KPIs", description: "Track SDG alignment, sustainability scores, and risk indicators.", icon: "TrendingUp" },
+  { title: "Roadmap Planning", description: "Phase-based net-zero roadmap with milestone tracking.", icon: "Settings" },
+  { title: "Community Engagement", description: "Leaderboards, eco-challenges, and campus events to drive action.", icon: "TrendingUp" },
+];
 
 const Landing = () => {
   const navigate = useNavigate();

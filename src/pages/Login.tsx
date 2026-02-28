@@ -1,16 +1,16 @@
 import { useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Leaf, Mail, Lock, ArrowRight } from "lucide-react";
+import { Leaf, Mail, Lock, ArrowRight, AlertCircle } from "lucide-react";
+import { useLogin } from "@/hooks/useAuth";
 
 const Login = () => {
-  const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const { mutate: login, isPending, error } = useLogin();
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    navigate("/dashboard");
+    login({ email, password });
   };
 
   return (
@@ -39,6 +39,7 @@ const Login = () => {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="admin@campus.edu"
+                  required
                   className="w-full bg-muted/30 border border-border rounded-xl py-2.5 pl-10 pr-4 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/20 focus:border-primary/30"
                 />
               </div>
@@ -52,21 +53,28 @@ const Login = () => {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
+                  required
                   className="w-full bg-muted/30 border border-border rounded-xl py-2.5 pl-10 pr-4 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/20 focus:border-primary/30"
                 />
               </div>
             </div>
+
+            {error && (
+              <div className="flex items-center gap-2 text-xs text-destructive bg-destructive/10 px-3 py-2 rounded-lg">
+                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                <span>{(error as Error).message}</span>
+              </div>
+            )}
+
             <button
               type="submit"
-              className="premium-button w-full py-3 text-sm font-semibold flex items-center justify-center gap-2 mt-2"
+              disabled={isPending}
+              className="premium-button w-full py-3 text-sm font-semibold flex items-center justify-center gap-2 mt-2 disabled:opacity-60"
             >
-              Sign In <ArrowRight className="w-4 h-4" />
+              {isPending ? "Signing in…" : "Sign In"}
+              <ArrowRight className="w-4 h-4" />
             </button>
           </form>
-
-          <p className="text-xs text-muted-foreground text-center mt-4">
-            Demo: Use any credentials to enter
-          </p>
         </div>
       </motion.div>
     </div>

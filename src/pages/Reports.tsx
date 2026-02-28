@@ -4,114 +4,185 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { motion } from "framer-motion";
-import { FileText, Download, Clock, CheckCircle2, Settings, Calendar, Eye } from "lucide-react";
-import { reportTemplates, reportKPIs } from "@/lib/module-data";
+import { FileText, Download, BarChart2, Settings } from "lucide-react";
+import { useCampusContext } from "@/context/CampusContext";
+import { useReportTemplates, useReportKPIs, useGenerateReport } from "@/hooks/useReports";
 
 const Reports = () => {
-  const [selectedKPIs, setSelectedKPIs] = useState<string[]>(reportKPIs.slice(0, 4).map(k => k.name));
+  const { campusId } = useCampusContext();
+  const { data: templates = [], isLoading: loadingTemplates } = useReportTemplates();
+  const { data: kpis = [], isLoading: loadingKPIs } = useReportKPIs();
+  const generateReport = useGenerateReport();
+
+  const [selectedTemplate, setSelectedTemplate] = useState<number | null>(null);
+  const [selectedKPIs, setSelectedKPIs] = useState<number[]>([]);
+
+  const toggleKPI = (id: number) =>
+    setSelectedKPIs(prev => prev.includes(id) ? prev.filter(k => k !== id) : [...prev, id]);
+
+  const handleGenerate = () => {
+    if (!selectedTemplate) return;
+    generateReport.mutate({
+      campusId,
+      templateId: selectedTemplate,
+      periodLabel: new Date().getFullYear().toString(),
+      generatedBy: 1,
+    });
+  };
 
   return (
-    <DashboardLayout title="Reports" breadcrumb="Reports · Generator">
+    <DashboardLayout title="Reports" breadcrumb="Sustainability Reports">
       <div className="max-w-[1400px] mx-auto space-y-4">
         <div className="flex items-center gap-3 text-xs text-muted-foreground">
           <Badge variant="outline" className="gap-1"><FileText className="w-3 h-3" /> Reports</Badge>
-          <span>Last Generated: Feb 1, 2025</span>
+          <span>{templates.length} Templates Available</span>
+          <span className="ml-auto text-[10px]">{selectedKPIs.length} KPIs selected</span>
         </div>
 
-        {/* Compliance Templates */}
-        <Card className="glass-card grain-overlay">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Compliance Report Templates</CardTitle>
-            <CardDescription className="text-xs">Select a template to generate a sustainability report</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-3">
-              {reportTemplates.map(t => (
-                <motion.div key={t.id} whileHover={{ y: -4 }} className="border border-border rounded-lg p-4 cursor-pointer hover:border-primary/40 transition-colors">
-                  <FileText className="w-6 h-6 text-primary mb-2" />
-                  <p className="text-sm font-medium text-foreground">{t.name}</p>
-                  <p className="text-[10px] text-muted-foreground mt-1">{t.standard} · {t.sections} sections</p>
-                  {t.lastGenerated ? (
-                    <div className="flex items-center gap-1 mt-2 text-[10px] text-muted-foreground">
-                      <CheckCircle2 className="w-3 h-3 text-[hsl(var(--chart-2))]" />
-                      Last: {t.lastGenerated}
-                    </div>
+        <Tabs defaultValue="templates">
+          <TabsList className="grid w-full grid-cols-3 h-11">
+            <TabsTrigger value="templates" className="gap-1.5"><FileText className="w-3.5 h-3.5" />Templates</TabsTrigger>
+            <TabsTrigger value="kpis" className="gap-1.5"><BarChart2 className="w-3.5 h-3.5" />KPI Library</TabsTrigger>
+            <TabsTrigger value="builder" className="gap-1.5"><Settings className="w-3.5 h-3.5" />Custom Builder</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="templates" className="mt-4">
+            {loadingTemplates ? (
+              <Skeleton className="h-64 w-full" />
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {templates.map(t => (
+                  <motion.div key={t.id} whileHover={{ y: -2 }}>
+                    <Card className={`glass-card grain-overlay cursor-pointer transition-colors ${
+                      selectedTemplate === t.id ? "border-primary/60" : ""
+                    }`} onClick={() => setSelectedTemplate(t.id)}>
+                      <CardHeader className="pb-2">
+                        <div className="flex items-start justify-between">
+                          <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                            <FileText className="w-4 h-4 text-primary" />
+                          </div>
+                          {selectedTemplate === t.id && (
+                            <Badge className="text-[10px]">Selected</Badge>
+                          )}
+                        </div>
+                        <CardTitle className="text-sm mt-2">{t.name}</CardTitle>
+                        <CardDescription className="text-xs">{t.standard}</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="flex items-center justify-between text-xs text-muted-foreground">
+                          <span>{t.section_count ?? 0} sections</span>
+                          <Badge variant="outline" className="text-[10px]">{t.code}</Badge>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </motion.div>
+                ))}
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="kpis" className="mt-4">
+            {loadingKPIs ? (
+              <Skeleton className="h-64 w-full" />
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {kpis.map(k => (
+                  <motion.div key={k.id} whileHover={{ x: 2 }}>
+                    <Card className="glass-card grain-overlay">
+                      <CardContent className="pt-3 pb-3 flex items-center gap-3">
+                        <div className="flex-1">
+                          <p className="text-sm font-medium text-foreground">{k.name}</p>
+                          <div className="flex items-center gap-2 mt-1">
+                            <Badge variant="outline" className="text-[10px] h-4">{k.category}</Badge>
+                            <span className="text-[10px] text-muted-foreground">{k.unit} · {k.period_label}</span>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </motion.div>
+                ))}
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="builder" className="mt-4">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <Card className="glass-card grain-overlay lg:col-span-2">
+                <CardHeader>
+                  <CardTitle className="text-sm">Select KPIs to Include</CardTitle>
+                  <CardDescription className="text-xs">Choose which metrics to include in your custom report</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {loadingKPIs ? (
+                    <Skeleton className="h-48 w-full" />
                   ) : (
-                    <div className="flex items-center gap-1 mt-2 text-[10px] text-muted-foreground">
-                      <Clock className="w-3 h-3" />
-                      Not yet generated
+                    <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                      {kpis.map(k => (
+                        <label key={k.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-white/5 cursor-pointer">
+                          <Checkbox
+                            checked={selectedKPIs.includes(k.id)}
+                            onCheckedChange={() => toggleKPI(k.id)}
+                          />
+                          <div className="flex-1">
+                            <p className="text-xs font-medium text-foreground">{k.name}</p>
+                            <p className="text-[10px] text-muted-foreground">{k.unit} · {k.period_label}</p>
+                          </div>
+                          <Badge variant="outline" className="text-[10px] h-4">{k.category}</Badge>
+                        </label>
+                      ))}
                     </div>
                   )}
-                </motion.div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+                </CardContent>
+              </Card>
 
-        <div className="grid grid-cols-1 md:grid-cols-[1fr_380px] gap-4">
-          {/* Custom Report Builder */}
-          <Card className="glass-card grain-overlay">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm flex items-center gap-2"><Settings className="w-4 h-4 text-primary" />Custom Report Builder</CardTitle>
-              <CardDescription className="text-xs">Select KPIs to include in your custom report</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {reportKPIs.map(k => (
-                <div key={k.name} className="flex items-center gap-3 border border-border rounded-lg p-3">
-                  <Checkbox
-                    checked={selectedKPIs.includes(k.name)}
-                    onCheckedChange={(c) => {
-                      setSelectedKPIs(prev => c ? [...prev, k.name] : prev.filter(n => n !== k.name));
-                    }}
-                  />
-                  <div className="flex-1">
-                    <p className="text-xs font-medium text-foreground">{k.name}</p>
-                    <p className="text-[10px] text-muted-foreground">{k.period}</p>
-                  </div>
-                  <p className="text-sm font-bold text-foreground">{k.value}</p>
-                  <Badge variant="outline" className={`text-[10px] h-4 ${k.change < 0 ? "text-[hsl(var(--chart-2))]" : "text-destructive"}`}>
-                    {k.change > 0 ? "+" : ""}{k.change}%
-                  </Badge>
-                </div>
-              ))}
-              <div className="flex gap-2 pt-2">
-                <Button className="rounded-full gap-1 flex-1 premium-button"><Download className="w-3 h-3" />Generate PDF</Button>
-                <Button variant="outline" className="rounded-full gap-1"><Eye className="w-3 h-3" />Preview</Button>
-                <Button variant="outline" className="rounded-full gap-1"><Calendar className="w-3 h-3" />Schedule</Button>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Report Preview */}
-          <Card className="glass-card grain-overlay">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Report Preview</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="border border-border rounded-lg p-4 bg-accent/20 min-h-[300px]">
-                <div className="text-center mb-4">
-                  <p className="text-xs text-muted-foreground uppercase tracking-wider">EcoVista Campus</p>
-                  <p className="text-sm font-bold text-foreground">Sustainability Report</p>
-                  <p className="text-[10px] text-muted-foreground">FY 2024-25 · Generated Feb 2025</p>
-                </div>
-                <div className="space-y-2">
-                  {selectedKPIs.map(name => {
-                    const kpi = reportKPIs.find(k => k.name === name);
-                    if (!kpi) return null;
-                    return (
-                      <div key={name} className="flex items-center justify-between text-xs border-b border-border/50 pb-1">
-                        <span className="text-muted-foreground">{kpi.name}</span>
-                        <span className="font-medium text-foreground">{kpi.value}</span>
+              <Card className="glass-card grain-overlay">
+                <CardHeader>
+                  <CardTitle className="text-sm">Generate Report</CardTitle>
+                  <CardDescription className="text-xs">Select a template and KPIs, then generate</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-2">Template</p>
+                    {loadingTemplates ? (
+                      <Skeleton className="h-8 w-full" />
+                    ) : (
+                      <div className="space-y-1">
+                        {templates.map(t => (
+                          <button key={t.id}
+                            className={`w-full text-left p-2 rounded-lg text-xs transition-colors ${
+                              selectedTemplate === t.id
+                                ? "bg-primary/20 text-primary"
+                                : "hover:bg-white/5 text-muted-foreground"
+                            }`}
+                            onClick={() => setSelectedTemplate(t.id)}>
+                            {t.name}
+                          </button>
+                        ))}
                       </div>
-                    );
-                  })}
-                </div>
-                {selectedKPIs.length === 0 && <p className="text-xs text-muted-foreground text-center mt-8">Select KPIs to preview</p>}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+                    )}
+                  </div>
+                  <div className="border-t border-border pt-3">
+                    <p className="text-xs text-muted-foreground mb-1">{selectedKPIs.length} KPIs selected</p>
+                    <p className="text-xs text-muted-foreground mb-3">{selectedTemplate ? "✓ Template selected" : "⚠ No template selected"}</p>
+                    <Button
+                      className="w-full premium-button rounded-full text-xs gap-2"
+                      disabled={!selectedTemplate || generateReport.isPending}
+                      onClick={handleGenerate}>
+                      <Download className="w-3.5 h-3.5" />
+                      {generateReport.isPending ? "Generating…" : "Generate PDF"}
+                    </Button>
+                    {generateReport.isSuccess && (
+                      <p className="text-xs text-emerald-400 mt-2 text-center">Report generated successfully!</p>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </TabsContent>
+        </Tabs>
       </div>
     </DashboardLayout>
   );

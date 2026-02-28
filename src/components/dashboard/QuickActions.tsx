@@ -1,7 +1,13 @@
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Zap, Leaf, Brain, TrendingUp, FileText } from "lucide-react";
-import { quickActions } from "@/lib/mock-data";
+const quickActions = [
+  { id: 1, label: "Energy Dashboard", icon: "Zap", route: "/energy", color: "chart-1" },
+  { id: 2, label: "Carbon Tracker", icon: "Leaf", route: "/carbon", color: "chart-2" },
+  { id: 3, label: "AI Recommendations", icon: "Brain", route: "/insights", color: "chart-3" },
+  { id: 4, label: "Financial Insights", icon: "TrendingUp", route: "/finance", color: "chart-4" },
+  { id: 5, label: "Generate Report", icon: "FileText", route: "/reports", color: "chart-5" },
+];
 
 const iconMap: Record<string, React.ComponentType<any>> = {
   Zap, Leaf, Brain, TrendingUp, FileText,
