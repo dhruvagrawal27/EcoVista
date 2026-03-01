@@ -1,6 +1,6 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
-import type { SustainabilityScore, SdgScore, KpiRiskIndicator } from "@/lib/types";
+import type { SustainabilityScore, SdgScore, KpiRiskIndicator, KpiIndicator } from "@/lib/types";
 
 export function useSustainabilityScore(campusId: number) {
   return useQuery<SustainabilityScore | null>({
@@ -63,5 +63,39 @@ export function useKpiRiskIndicators(campusId: number) {
     },
     enabled: !!campusId,
     staleTime: 10 * 60 * 1000,
+  });
+}
+
+export function useUpdateKpiRiskIndicator(campusId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      id,
+      ...patch
+    }: Partial<Omit<KpiRiskIndicator, "id" | "campus_id">> & { id: number }) => {
+      const { error } = await supabase
+        .from("kpi_risk_indicators")
+        .update({ ...patch, updated_at: new Date().toISOString() })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["kpi-risk-indicators", campusId] }),
+  });
+}
+
+export function useKpiIndicators(campusId: number) {
+  return useQuery<KpiIndicator[]>({
+    queryKey: ["kpi-indicators", campusId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("kpi_indicators")
+        .select("*")
+        .eq("campus_id", campusId)
+        .order("indicator_type", { ascending: true });
+      if (error) throw error;
+      return (data ?? []) as KpiIndicator[];
+    },
+    enabled: !!campusId,
+    staleTime: 30 * 60 * 1000,
   });
 }

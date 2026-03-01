@@ -84,3 +84,42 @@ export function useGenerateReport() {
     },
   });
 }
+
+export function useCompleteReport(campusId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      id,
+      fileSizeKb,
+    }: {
+      id: number;
+      fileSizeKb: number;
+    }) => {
+      const { error } = await supabase
+        .from("reports")
+        .update({
+          status: "completed",
+          file_size_kb: fileSizeKb,
+          generated_at: new Date().toISOString(),
+        })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["reports", campusId] });
+    },
+  });
+}
+
+export function useDeleteReport(campusId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const { error } = await supabase.from("reports").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["reports", campusId] });
+    },
+  });
+}
