@@ -11,6 +11,8 @@ import {
 } from "lucide-react";
 import { useCampusContext } from "@/context/CampusContext";
 import { useEcoChallenges, useJoinChallenge } from "@/hooks/useCommunity";
+import { useCurrentUser } from "@/hooks/useAuth";
+import { useToast } from "@/hooks/use-toast";
 import type { EcoChallenge } from "@/lib/types";
 
 const categoryIcons: Record<string, React.ElementType> = {
@@ -126,7 +128,9 @@ function ChallengeCard({
 const Challenges = () => {
   const { campusId } = useCampusContext();
   const { data: challenges = [], isLoading } = useEcoChallenges(campusId);
+  const { data: currentUser } = useCurrentUser();
   const joinMutation = useJoinChallenge();
+  const { toast } = useToast();
 
   const active = challenges.filter(c => c.status === "active");
   const upcoming = challenges.filter(c => c.status === "upcoming");
@@ -134,6 +138,27 @@ const Challenges = () => {
 
   const totalPoints = challenges.reduce((s, c) => s + (c.reward_points ?? 0), 0);
   const totalCarbon = challenges.reduce((s, c) => s + (c.carbon_potential_t ?? 0), 0);
+
+  const handleJoin = (challengeId: number, title: string) => {
+    if (!currentUser) {
+      toast({ title: "Not logged in", description: "Please sign in to join challenges.", variant: "destructive" });
+      return;
+    }
+    joinMutation.mutate(
+      { challengeId, userId: currentUser.id as unknown as number },
+      {
+        onSuccess: () => toast({ title: "Joined! 🎉", description: `You've joined "${title}". Good luck!` }),
+        onError: (e) => {
+          const msg = (e as Error).message;
+          if (msg.includes("duplicate") || msg.includes("unique")) {
+            toast({ title: "Already joined", description: `You're already in "${title}".` });
+          } else {
+            toast({ title: "Error joining", description: msg, variant: "destructive" });
+          }
+        },
+      }
+    );
+  };
 
   // Static achievement badges (UI decorations, not DB-driven)
   const badges = [
@@ -182,7 +207,7 @@ const Challenges = () => {
                   <ChallengeCard
                     key={c.id}
                     challenge={c}
-                    onJoin={id => joinMutation.mutate({ challengeId: id, userId: 0 })}
+                    onJoin={id => handleJoin(id, c.title)}
                     joining={joinMutation.isPending}
                   />
                 ))}

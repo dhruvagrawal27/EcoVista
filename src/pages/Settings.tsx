@@ -1,4 +1,4 @@
-﻿import { useState } from "react";
+﻿import { useState, useEffect } from "react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -12,48 +12,98 @@ import { Separator } from "@/components/ui/separator";
 import { motion } from "framer-motion";
 import {
   User, Bell, Shield, Monitor, Brain, Globe, LogOut,
-  Smartphone, MapPin, Clock, CheckCircle2, XCircle,
+  Smartphone, MapPin, Clock, CheckCircle2, XCircle, Save,
 } from "lucide-react";
-import { useCurrentUser, useLogout } from "@/hooks/useAuth";
+import { useAuth } from "@/context/AuthContext";
+import { useLogout } from "@/hooks/useAuth";
 import { useCurrentUserSessions } from "@/hooks/useAdmin";
+import { useToast } from "@/hooks/use-toast";
+
+// ── Per-user preference persistence in localStorage ───────────────────────
+function prefsKey(userId: string, section: string) {
+  return `ecovista_prefs_${userId}_${section}`;
+}
+
+function loadPrefs<T>(userId: string | undefined, section: string, defaults: T): T {
+  if (!userId) return defaults;
+  try {
+    const raw = localStorage.getItem(prefsKey(userId, section));
+    if (!raw) return defaults;
+    return { ...defaults, ...JSON.parse(raw) } as T;
+  } catch {
+    return defaults;
+  }
+}
+
+function savePrefs(userId: string, section: string, value: unknown) {
+  localStorage.setItem(prefsKey(userId, section), JSON.stringify(value));
+}
+
+// ── Default preference shapes ──────────────────────────────────────────────
+const defaultNotif = {
+  emailCritical: true,
+  emailDaily: true,
+  emailWeekly: false,
+  emailMonthly: true,
+  emailAI: true,
+  pushCritical: true,
+  pushEquipment: true,
+  pushChallenge: false,
+  pushCommunity: false,
+};
+
+const defaultDisplay = {
+  executiveMode: false,
+  showConfidence: true,
+  animateCharts: true,
+};
+
+const defaultAI = {
+  autonomousHVAC: false,
+  predictiveMaintenance: true,
+  autoOptimizeSolar: true,
+  smartLoadBalancing: false,
+  automationSuggestions: true,
+};
 
 const Settings = () => {
-  const { data: currentUser, isLoading: loadingUser } = useCurrentUser();
+  const { user } = useAuth();
   const { data: sessions = [], isLoading: loadingSessions } = useCurrentUserSessions(
-    currentUser?.id ?? null,
+    user?.id ?? null,
   );
   const { mutate: logout } = useLogout();
+  const { toast } = useToast();
 
-  const [notifPrefs, setNotifPrefs] = useState({
-    emailCritical: true,
-    emailDaily: true,
-    emailWeekly: false,
-    emailMonthly: true,
-    emailAI: true,
-    pushCritical: true,
-    pushEquipment: true,
-    pushChallenge: false,
-    pushCommunity: false,
-  });
+  // ── Pref state — initialised lazily after user resolves ───────────────
+  const [notifPrefs, setNotifPrefs] = useState(defaultNotif);
+  const [displayPrefs, setDisplayPrefs] = useState(defaultDisplay);
+  const [aiPrefs, setAiPrefs] = useState(defaultAI);
+  const [prefsLoaded, setPrefsLoaded] = useState(false);
 
-  const [displayPrefs, setDisplayPrefs] = useState({
-    executiveMode: false,
-    showConfidence: true,
-    animateCharts: true,
-  });
+  // Load saved prefs once the user is known
+  useEffect(() => {
+    if (user?.id && !prefsLoaded) {
+      setNotifPrefs(loadPrefs(user.id, "notifications", defaultNotif));
+      setDisplayPrefs(loadPrefs(user.id, "display", defaultDisplay));
+      setAiPrefs(loadPrefs(user.id, "ai", defaultAI));
+      setPrefsLoaded(true);
+    }
+  }, [user?.id, prefsLoaded]);
 
-  const [aiPrefs, setAiPrefs] = useState({
-    autonomousHVAC: false,
-    predictiveMaintenance: true,
-    autoOptimizeSolar: true,
-    smartLoadBalancing: false,
-    automationSuggestions: true,
-  });
-
-  const togglePref = (
-    setter: React.Dispatch<React.SetStateAction<any>>,
+  const togglePref = <T extends Record<string, boolean>>(
+    setter: React.Dispatch<React.SetStateAction<T>>,
     key: string,
-  ) => setter((prev: any) => ({ ...prev, [key]: !prev[key] }));
+  ) => setter((prev) => ({ ...prev, [key]: !prev[key as keyof T] }));
+
+  const handleSavePreferences = (section: "notifications" | "display" | "ai") => {
+    if (!user?.id) {
+      toast({ title: "Not signed in", variant: "destructive" });
+      return;
+    }
+    const value = section === "notifications" ? notifPrefs : section === "display" ? displayPrefs : aiPrefs;
+    savePrefs(user.id, section, value);
+    toast({ title: "Preferences saved ✓", description: `Your ${section} preferences have been updated.` });
+  };
 
   return (
     <DashboardLayout title="Settings" breadcrumb="System · Settings">
@@ -75,7 +125,7 @@ const Settings = () => {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                {loadingUser ? (
+                {!user ? (
                   <div className="space-y-3">
                     {Array(4).fill(0).map((_, i) => <Skeleton key={i} className="h-9 w-full" />)}
                   </div>
@@ -83,15 +133,16 @@ const Settings = () => {
                   <>
                     <div className="flex items-center gap-4 mb-4">
                       <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center text-2xl font-bold text-primary">
-                        {currentUser?.email?.[0]?.toUpperCase() ?? "?"}
+                        {(user.name ?? user.email)?.[0]?.toUpperCase() ?? "?"}
                       </div>
                       <div>
-                        <p className="font-semibold text-foreground">{currentUser?.email ?? "—"}</p>
+                        <p className="font-semibold text-foreground">{user.name ?? user.email}</p>
+                        <p className="text-xs text-muted-foreground">{user.email}</p>
                         <p className="text-xs text-muted-foreground mt-0.5">
-                          UID: {currentUser?.id?.slice(0, 8)}…
+                          UID: {user.id}
                         </p>
                         <Badge variant="outline" className="mt-1 text-xs">
-                          {currentUser?.role ?? "authenticated"}
+                          {user.role_name ?? "authenticated"}
                         </Badge>
                       </div>
                     </div>
@@ -99,38 +150,26 @@ const Settings = () => {
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
                       <div className="space-y-1.5">
                         <Label className="text-xs">Email</Label>
-                        <Input value={currentUser?.email ?? ""} readOnly className="bg-muted/30 text-sm" />
+                        <Input value={user.email ?? ""} readOnly className="bg-muted/30 text-sm" />
                       </div>
                       <div className="space-y-1.5">
-                        <Label className="text-xs">Last Sign-In</Label>
+                        <Label className="text-xs">Role</Label>
+                        <Input value={user.role_name ?? "—"} readOnly className="bg-muted/30 text-sm" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Auth Source</Label>
                         <Input
-                          value={
-                            currentUser?.last_sign_in_at
-                              ? new Date(currentUser.last_sign_in_at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })
-                              : "—"
-                          }
+                          value={user.source === "supabase" ? "Supabase Auth" : "DB Account"}
                           readOnly
                           className="bg-muted/30 text-sm"
                         />
                       </div>
                       <div className="space-y-1.5">
-                        <Label className="text-xs">Account Created</Label>
+                        <Label className="text-xs">User ID</Label>
                         <Input
-                          value={
-                            currentUser?.created_at
-                              ? new Date(currentUser.created_at).toLocaleDateString("en-IN", { dateStyle: "medium" })
-                              : "—"
-                          }
+                          value={user.id}
                           readOnly
-                          className="bg-muted/30 text-sm"
-                        />
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label className="text-xs">Auth Provider</Label>
-                        <Input
-                          value={currentUser?.app_metadata?.provider ?? "email"}
-                          readOnly
-                          className="bg-muted/30 text-sm capitalize"
+                          className="bg-muted/30 text-sm font-mono text-xs"
                         />
                       </div>
                     </div>
@@ -193,6 +232,9 @@ const Settings = () => {
                 ))}
               </CardContent>
             </Card>
+            <Button className="premium-button gap-2" onClick={() => handleSavePreferences("notifications")}>
+              <Save className="w-4 h-4" />Save Notification Preferences
+            </Button>
           </TabsContent>
 
           <TabsContent value="display" className="mt-4 space-y-4">
@@ -218,6 +260,9 @@ const Settings = () => {
                 ))}
               </CardContent>
             </Card>
+            <Button className="premium-button gap-2" onClick={() => handleSavePreferences("display")}>
+              <Save className="w-4 h-4" />Save Display Preferences
+            </Button>
           </TabsContent>
 
           <TabsContent value="ai" className="mt-4 space-y-4">
@@ -245,6 +290,9 @@ const Settings = () => {
                 ))}
               </CardContent>
             </Card>
+            <Button className="premium-button gap-2" onClick={() => handleSavePreferences("ai")}>
+              <Save className="w-4 h-4" />Save AI Preferences
+            </Button>
           </TabsContent>
 
           <TabsContent value="security" className="mt-4 space-y-4">

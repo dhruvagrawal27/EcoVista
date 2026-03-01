@@ -9,9 +9,13 @@ import { motion } from "framer-motion";
 import { Users, Trophy, Award, Calendar, Flame } from "lucide-react";
 import { useCampusContext } from "@/context/CampusContext";
 import { useLeaderboard, useEcoChallenges, useCommunityEvents, useJoinChallenge, useRsvpEvent } from "@/hooks/useCommunity";
+import { useCurrentUser } from "@/hooks/useAuth";
+import { useToast } from "@/hooks/use-toast";
 
 const Community = () => {
   const { campusId } = useCampusContext();
+  const { data: currentUser } = useCurrentUser();
+  const { toast } = useToast();
   const { data: leaderboard = [], isLoading: loadingLB } = useLeaderboard(campusId);
   const { data: challenges = [], isLoading: loadingCh } = useEcoChallenges(campusId);
   const { data: events = [], isLoading: loadingEv } = useCommunityEvents(campusId);
@@ -19,6 +23,48 @@ const Community = () => {
   const rsvpEvent = useRsvpEvent();
 
   const activeChallenges = challenges.filter(c => c.status === "active").length;
+
+  const handleJoinChallenge = (challengeId: number, title: string) => {
+    if (!currentUser) {
+      toast({ title: "Not logged in", description: "Please sign in to join challenges.", variant: "destructive" });
+      return;
+    }
+    joinChallenge.mutate(
+      { challengeId, userId: currentUser.id as unknown as number },
+      {
+        onSuccess: () => toast({ title: "Joined! 🎉", description: `You've joined "${title}".` }),
+        onError: (e) => {
+          const msg = (e as Error).message;
+          if (msg.includes("duplicate") || msg.includes("unique")) {
+            toast({ title: "Already joined", description: `You're already participating in "${title}".` });
+          } else {
+            toast({ title: "Error", description: msg, variant: "destructive" });
+          }
+        },
+      }
+    );
+  };
+
+  const handleRsvp = (eventId: number, title: string) => {
+    if (!currentUser) {
+      toast({ title: "Not logged in", description: "Please sign in to RSVP.", variant: "destructive" });
+      return;
+    }
+    rsvpEvent.mutate(
+      { eventId, userId: currentUser.id as unknown as number },
+      {
+        onSuccess: () => toast({ title: "RSVP confirmed! 📅", description: `You're registered for "${title}".` }),
+        onError: (e) => {
+          const msg = (e as Error).message;
+          if (msg.includes("duplicate") || msg.includes("unique")) {
+            toast({ title: "Already registered", description: `You've already RSVP'd to "${title}".` });
+          } else {
+            toast({ title: "Error", description: msg, variant: "destructive" });
+          }
+        },
+      }
+    );
+  };
 
   return (
     <DashboardLayout title="Community" breadcrumb="Engagement Community">
@@ -98,7 +144,7 @@ const Community = () => {
                         {ch.status === "active" && (
                           <Button size="sm" className="rounded-full mt-2 w-full premium-button text-xs"
                             disabled={joinChallenge.isPending}
-                            onClick={() => joinChallenge.mutate({ challengeId: ch.id, userId: 1 })}>
+                            onClick={() => handleJoinChallenge(ch.id, ch.title)}>
                             Join Challenge
                           </Button>
                         )}
@@ -131,7 +177,7 @@ const Community = () => {
                         </div>
                         <Button size="sm" variant="outline" className="rounded-full text-xs"
                           disabled={rsvpEvent.isPending}
-                          onClick={() => rsvpEvent.mutate({ eventId: ev.id, userId: 1 })}>
+                          onClick={() => handleRsvp(ev.id, ev.title)}>
                           RSVP
                         </Button>
                       </CardContent>

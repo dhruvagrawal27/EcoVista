@@ -1,12 +1,34 @@
-import { AlertTriangle, AlertCircle } from "lucide-react";
+import { AlertTriangle, AlertCircle, CheckCheck, ShieldCheck } from "lucide-react";
 import { motion } from "framer-motion";
 import { useCampusContext } from "@/context/CampusContext";
-import { useActiveAlerts } from "@/hooks/useAlerts";
+import { useActiveAlerts, useAcknowledgeAlert, useResolveAlert } from "@/hooks/useAlerts";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
 
 const AlertCard = () => {
   const { campusId } = useCampusContext();
   const { data: alerts, isLoading } = useActiveAlerts(campusId, 5);
+  const acknowledgeMutation = useAcknowledgeAlert();
+  const resolveMutation = useResolveAlert();
+  const { toast } = useToast();
+
+  const handleAcknowledge = (alertId: number, title: string) => {
+    acknowledgeMutation.mutate(
+      { alertId },
+      {
+        onSuccess: () => toast({ title: "Alert acknowledged", description: title }),
+        onError: (e) => toast({ title: "Error", description: (e as Error).message, variant: "destructive" }),
+      }
+    );
+  };
+
+  const handleResolve = (alertId: number, title: string) => {
+    resolveMutation.mutate(alertId, {
+      onSuccess: () => toast({ title: "Alert resolved", description: title }),
+      onError: (e) => toast({ title: "Error", description: (e as Error).message, variant: "destructive" }),
+    });
+  };
 
   return (
     <div className="glass-card grain-overlay p-5">
@@ -25,8 +47,7 @@ const AlertCard = () => {
                 initial={{ opacity: 0, x: -10 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: i * 0.1 }}
-                whileHover={{ scale: 1.01 }}
-                className={`p-3 rounded-xl border cursor-pointer transition-all hover:shadow-sm ${
+                className={`p-3 rounded-xl border transition-all ${
                   alert.alert_type === "critical"
                     ? "border-destructive/30 bg-destructive/5"
                     : "border-border/50 bg-accent/20"
@@ -47,10 +68,33 @@ const AlertCard = () => {
                         minute: "2-digit",
                       })}
                     </p>
+                    <div className="flex gap-1.5 mt-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-6 text-[10px] gap-1 text-amber-500 border-amber-500/30"
+                        disabled={acknowledgeMutation.isPending}
+                        onClick={() => handleAcknowledge(alert.id, alert.title)}
+                      >
+                        <CheckCheck className="w-3 h-3" />Acknowledge
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-6 text-[10px] gap-1 text-emerald-500 border-emerald-500/30"
+                        disabled={resolveMutation.isPending}
+                        onClick={() => handleResolve(alert.id, alert.title)}
+                      >
+                        <ShieldCheck className="w-3 h-3" />Resolve
+                      </Button>
+                    </div>
                   </div>
                 </div>
               </motion.div>
             ))}
+        {!isLoading && (alerts ?? []).length === 0 && (
+          <p className="text-xs text-muted-foreground text-center py-4">No active alerts 🎉</p>
+        )}
       </div>
     </div>
   );

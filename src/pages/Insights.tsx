@@ -7,10 +7,12 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { motion } from "framer-motion";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
-import { Brain, CheckCircle2, Clock, Lightbulb } from "lucide-react";
+import { Brain, CheckCircle2, Clock, Lightbulb, ThumbsUp, Eye, X } from "lucide-react";
 import { useCampusContext } from "@/context/CampusContext";
-import { useAIRecommendations, useAITrustScore, useMLModelPerformance } from "@/hooks/useAI";
+import { useAIRecommendations, useAITrustScore, useMLModelPerformance, useUpdateRecommendationStatus } from "@/hooks/useAI";
+import { useToast } from "@/hooks/use-toast";
 import type { AIRecommendationSortBy } from "@/hooks/useAI";
+import type { AIRecommendation } from "@/lib/types";
 
 const sortOptions: { key: AIRecommendationSortBy; label: string }[] = [
   { key: "roi_pct", label: "ROI" },
@@ -20,10 +22,13 @@ const sortOptions: { key: AIRecommendationSortBy; label: string }[] = [
 
 const Insights = () => {
   const { campusId } = useCampusContext();
+  const { toast } = useToast();
   const [sortBy, setSortBy] = useState<AIRecommendationSortBy>("roi_pct");
   const { data: recommendations = [], isLoading: loadingRecs } = useAIRecommendations(campusId, sortBy);
   const { data: trustScore, isLoading: loadingTrust } = useAITrustScore(campusId);
   const { data: modelPerformance = [], isLoading: loadingModel } = useMLModelPerformance(30);
+  const updateStatus = useUpdateRecommendationStatus();
+
   const adopted = recommendations.filter(r => r.status === "implemented").length;
   const adoptionRate = recommendations.length > 0 ? Math.round((adopted / recommendations.length) * 100) : 0;
   const modelChartData = modelPerformance.map(m => ({ day: new Date(m.report_date).getDate(), accuracy: m.accuracy ?? 0 }));
@@ -37,6 +42,35 @@ const Insights = () => {
   const strategic = recommendations.filter(r => (r.roi_pct ?? 0) > 20 && (r.ease_score ?? 0) <= 70).length;
   const easyFixes = recommendations.filter(r => (r.roi_pct ?? 0) <= 20 && (r.ease_score ?? 0) > 70).length;
   const deprioritize = recommendations.filter(r => (r.roi_pct ?? 0) <= 20 && (r.ease_score ?? 0) <= 70).length;
+
+  const handleStatusChange = (rec: AIRecommendation, newStatus: AIRecommendation["status"]) => {
+    updateStatus.mutate(
+      { id: rec.id, status: newStatus },
+      {
+        onSuccess: () => toast({ title: `Recommendation ${newStatus}`, description: rec.title }),
+        onError: (e) => toast({ title: "Error", description: (e as Error).message, variant: "destructive" }),
+      }
+    );
+  };
+
+  const statusActionMap: Record<string, { next: AIRecommendation["status"]; label: string; icon: React.ElementType; color: string }[]> = {
+    new: [
+      { next: "in-review", label: "Review", icon: Eye, color: "text-blue-400" },
+      { next: "approved", label: "Approve", icon: ThumbsUp, color: "text-emerald-400" },
+    ],
+    "in-review": [
+      { next: "approved", label: "Approve", icon: ThumbsUp, color: "text-emerald-400" },
+      { next: "rejected", label: "Reject", icon: X, color: "text-destructive" },
+    ],
+    approved: [
+      { next: "implemented", label: "Mark Done", icon: CheckCircle2, color: "text-emerald-400" },
+      { next: "rejected", label: "Reject", icon: X, color: "text-destructive" },
+    ],
+    implemented: [],
+    rejected: [
+      { next: "new", label: "Reopen", icon: Lightbulb, color: "text-primary" },
+    ],
+  };
 
   return (
     <DashboardLayout title="AI Insights" breadcrumb="AI Recommendations">
@@ -74,6 +108,7 @@ const Insights = () => {
             <CardContent className="space-y-3">
               {loadingRecs ? Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-20 w-full" />) : recommendations.map(r => {
                 const StatusIcon = r.status === "implemented" ? CheckCircle2 : r.status === "in-review" ? Clock : Lightbulb;
+                const actions = statusActionMap[r.status] ?? [];
                 return (
                   <motion.div key={r.id} whileHover={{ x: 4 }} className="border border-border rounded-lg p-3">
                     <div className="flex items-center gap-2 mb-2">
@@ -82,12 +117,28 @@ const Insights = () => {
                       <Badge variant="outline" className="text-[10px] h-4">{r.category}</Badge>
                       <Badge variant="outline" className="text-[10px] h-4 capitalize">{r.status}</Badge>
                     </div>
-                    <div className="grid grid-cols-4 gap-2 text-center">
+                    <div className="grid grid-cols-4 gap-2 text-center mb-3">
                       <div><p className="text-sm font-bold text-foreground">{r.roi_pct ?? "--"}%</p><p className="text-[10px] text-muted-foreground">ROI</p></div>
                       <div><p className="text-sm font-bold text-foreground">-{r.carbon_impact ?? "--"}</p><p className="text-[10px] text-muted-foreground">tCO2e</p></div>
                       <div><p className="text-sm font-bold text-foreground">{r.ease_score ?? "--"}%</p><p className="text-[10px] text-muted-foreground">Ease</p></div>
                       <div><p className="text-sm font-bold text-foreground">{r.confidence_pct ?? "--"}%</p><p className="text-[10px] text-muted-foreground">Confidence</p></div>
                     </div>
+                    {actions.length > 0 && (
+                      <div className="flex gap-2 justify-end">
+                        {actions.map(({ next, label, icon: Icon, color }) => (
+                          <Button
+                            key={next}
+                            size="sm"
+                            variant="outline"
+                            className={`h-6 text-[10px] gap-1 ${color}`}
+                            disabled={updateStatus.isPending}
+                            onClick={() => handleStatusChange(r, next)}
+                          >
+                            <Icon className="w-3 h-3" />{label}
+                          </Button>
+                        ))}
+                      </div>
+                    )}
                   </motion.div>
                 );
               })}

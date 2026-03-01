@@ -7,4 +7,5 @@ if (!supabaseUrl || !supabaseKey) {
   throw new Error("Missing Supabase environment variables. Check your .env file.");
 }
 
+// Primary client — persists admin session in localStorage
 export const supabase = createClient(supabaseUrl, supabaseKey);
