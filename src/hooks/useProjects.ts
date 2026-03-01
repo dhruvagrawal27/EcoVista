@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import type {
   Project,
@@ -62,5 +62,48 @@ export function useProjects(campusId: number) {
     },
     enabled: !!campusId,
     staleTime: 5 * 60 * 1000,
+  });
+}
+
+// ── Project mutations ──────────────────────────────────────────────────────
+
+export type ProjectInsert = Partial<Omit<Project, "id" | "created_at" | "updated_at">> & {
+  campus_id: number;
+  name: string;
+};
+
+export function useCreateProject(campusId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: ProjectInsert) => {
+      const { error } = await supabase.from("projects").insert([payload]);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["projects", campusId] }),
+  });
+}
+
+export function useUpdateProject(campusId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, ...patch }: Partial<Project> & { id: number }) => {
+      const { error } = await supabase
+        .from("projects")
+        .update({ ...patch, updated_at: new Date().toISOString() })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["projects", campusId] }),
+  });
+}
+
+export function useDeleteProject(campusId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const { error } = await supabase.from("projects").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["projects", campusId] }),
   });
 }

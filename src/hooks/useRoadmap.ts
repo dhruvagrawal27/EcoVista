@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import type { RoadmapPhase, RoadmapMilestone, RiskRegister } from "@/lib/types";
 
@@ -58,5 +58,89 @@ export function useRiskRegister(campusId: number) {
     },
     enabled: !!campusId,
     staleTime: 10 * 60 * 1000,
+  });
+}
+
+// ── Phase mutations ────────────────────────────────────────────────────────
+
+export type PhaseUpsert = Partial<Omit<RoadmapPhase, "id" | "created_at" | "updated_at">> & {
+  campus_id: number;
+};
+
+export function useCreatePhase(campusId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: PhaseUpsert) => {
+      const { error } = await supabase.from("roadmap_phases").insert([payload]);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["roadmap-phases", campusId] }),
+  });
+}
+
+export function useUpdatePhase(campusId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, ...patch }: Partial<RoadmapPhase> & { id: number }) => {
+      const { error } = await supabase
+        .from("roadmap_phases")
+        .update({ ...patch, updated_at: new Date().toISOString() })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["roadmap-phases", campusId] }),
+  });
+}
+
+export function useDeletePhase(campusId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const { error } = await supabase.from("roadmap_phases").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["roadmap-phases", campusId] }),
+  });
+}
+
+// ── Risk mutations ─────────────────────────────────────────────────────────
+
+export type RiskUpsert = Partial<Omit<RiskRegister, "id" | "created_at" | "updated_at">> & {
+  campus_id: number;
+};
+
+export function useCreateRisk(campusId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: RiskUpsert) => {
+      const { error } = await supabase.from("risk_register").insert([payload]);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["risk-register", campusId] }),
+  });
+}
+
+export function useUpdateRisk(campusId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, ...patch }: Partial<RiskRegister> & { id: number }) => {
+      const { error } = await supabase
+        .from("risk_register")
+        .update({ ...patch, updated_at: new Date().toISOString() })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["risk-register", campusId] }),
+  });
+}
+
+export function useDeleteRisk(campusId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const { error } = await supabase.from("risk_register").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["risk-register", campusId] }),
   });
 }

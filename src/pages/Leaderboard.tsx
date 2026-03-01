@@ -49,19 +49,24 @@ function LeaderRow({ entry, index }: { entry: LeaderboardEntry; index: number })
 
 function Podium({ entries }: { entries: LeaderboardEntry[] }) {
   const top3 = entries.slice(0, 3);
-  const heights = ["h-20", "h-28", "h-16"];
-  const order = [1, 0, 2]; // 2nd, 1st, 3rd visually
+  // Visual order: 2nd (left) · 1st (centre, tallest) · 3rd (right)
+  // We use dataIdx to pull the right entry; visualIdx drives height/colour
+  const slots = [
+    { dataIdx: 1, height: "h-20", gold: false },  // left  = 2nd place
+    { dataIdx: 0, height: "h-28", gold: true  },  // centre = 1st place
+    { dataIdx: 2, height: "h-16", gold: false },  // right  = 3rd place
+  ];
   return (
     <div className="flex items-end justify-center gap-2 py-4">
-      {order.map(i => {
-        const e = top3[i];
-        if (!e) return <div key={i} className="w-24" />;
+      {slots.map(({ dataIdx, height, gold }) => {
+        const e = top3[dataIdx];
+        if (!e) return <div key={dataIdx} className="w-24" />;
         return (
-          <div key={i} className="flex flex-col items-center gap-1">
+          <div key={dataIdx} className="flex flex-col items-center gap-1">
             <span className="text-[10px] text-muted-foreground truncate max-w-20 text-center">{e.entity_name}</span>
             <span className="text-xs font-bold text-foreground">{(e.total_points ?? 0).toLocaleString()}</span>
-            <div className={`${heights[i]} w-20 rounded-t-lg flex items-end justify-center pb-2 ${i === 0 ? "bg-yellow-500/20 border border-yellow-500/40" : "bg-muted/40 border border-border"}`}>
-              <RankBadge rank={e.rank ?? i + 1} />
+            <div className={`${height} w-20 rounded-t-lg flex items-end justify-center pb-2 ${gold ? "bg-yellow-500/20 border border-yellow-500/40" : "bg-muted/40 border border-border"}`}>
+              <RankBadge rank={dataIdx + 1} />
             </div>
           </div>
         );
@@ -75,13 +80,13 @@ const Leaderboard = () => {
   const { data: leaderboard = [], isLoading } = useLeaderboard(campusId);
 
   const departments = leaderboard.filter(e => e.entity_type === "department");
-  const hostels = leaderboard.filter(e => e.entity_type === "hostel");
+  const teams = leaderboard.filter(e => e.entity_type === "team");
   const buildings = leaderboard.filter(e => e.entity_type === "building");
   const hallOfFame = leaderboard.filter(e => e.hall_of_fame);
 
   const tabs: { label: string; data: LeaderboardEntry[]; icon: React.ReactNode }[] = [
-    { label: "Departments", data: departments, icon: <Users className="w-3 h-3" /> },
-    { label: "Hostels", data: hostels, icon: <Trophy className="w-3 h-3" /> },
+    { label: "Teams", data: teams, icon: <Users className="w-3 h-3" /> },
+    { label: "Departments", data: departments, icon: <Trophy className="w-3 h-3" /> },
     { label: "Buildings", data: buildings, icon: <Flame className="w-3 h-3" /> },
   ];
 

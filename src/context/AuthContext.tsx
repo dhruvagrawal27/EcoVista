@@ -14,10 +14,13 @@
  *          |                  | settings
  *          |                  | (NO finance, NO admin)
  * 3        | Finance          | dashboard, carbon, insights, kpis,
- *          |                  | finance, reports, roadmap, settings
+ *          |                  | finance, reports, roadmap, projects,
+ *          |                  | community, leaderboard, challenges,
+ *          |                  | settings  (planning: read-only)
  * 4        | Faculty          | dashboard, carbon, insights, kpis,
- *          |                  | reports, community, leaderboard,
- *          |                  | challenges, settings
+ *          |                  | reports, roadmap, projects,
+ *          |                  | community, leaderboard, challenges,
+ *          |                  | settings  (planning: read-only)
  * 5        | Student Lead     | dashboard, community, leaderboard,
  *          |                  | challenges, settings
  * 6        | System           | (bot account — should never log in)
@@ -85,13 +88,15 @@ const ROLE_ROUTES: Record<number, string[]> = {
     "/insights", "/kpis", "/reports", "/roadmap", "/projects",
     "/community", "/leaderboard", "/challenges", "/settings",
   ],
-  3: [ // Finance — financial + analytics pages only
+  3: [ // Finance — financial + analytics + planning (read-only) + community
     "/dashboard", "/carbon", "/insights", "/kpis",
-    "/finance", "/reports", "/roadmap", "/settings",
+    "/finance", "/reports", "/roadmap", "/projects",
+    "/community", "/leaderboard", "/challenges", "/settings",
   ],
-  4: [ // Faculty — read-only, community engagement
+  4: [ // Faculty — read-only analytics + planning (read-only) + community
     "/dashboard", "/carbon", "/insights", "/kpis",
-    "/reports", "/community", "/leaderboard", "/challenges", "/settings",
+    "/reports", "/roadmap", "/projects",
+    "/community", "/leaderboard", "/challenges", "/settings",
   ],
   5: [ // Student Lead — community & engagement only
     "/dashboard", "/community", "/leaderboard", "/challenges", "/settings",

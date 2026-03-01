@@ -1,16 +1,23 @@
+import { useState } from "react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { motion } from "framer-motion";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from "recharts";
-import { FolderKanban, TrendingUp, Leaf, DollarSign, CheckCircle2, Clock, Flame } from "lucide-react";
+import { FolderKanban, TrendingUp, Leaf, DollarSign, CheckCircle2, Clock, Flame, Info, Edit2 } from "lucide-react";
 import { useCampusContext } from "@/context/CampusContext";
-import { useProjects } from "@/hooks/useProjects";
+import { useAuth } from "@/context/AuthContext";
+import { useProjects, useUpdateProject } from "@/hooks/useProjects";
+import { useToast } from "@/hooks/use-toast";
 import type { ProjectWithDetails } from "@/hooks/useProjects";
+import type { RoleName } from "@/context/AuthContext";
 
 const statusColors: Record<string, string> = {
   "In Progress": "text-blue-400 border-blue-500/30",
@@ -26,17 +33,59 @@ const riskColors: Record<string, string> = {
   High: "text-red-400",
 };
 
-function ProjectCard({ p }: { p: ProjectWithDetails }) {
+const CHART_TICK = "hsl(215 16% 55%)";
+
+const ROLE_INFO: Partial<Record<NonNullable<RoleName>, { color: string; msg: string }>> = {
+  "Admin": {
+    color: "text-violet-400 border-violet-500/20",
+    msg: "Full access — you can inline-edit project status, actual spend, and timeline progress. Add or delete projects in Admin → Planning tab.",
+  },
+  "Facility Manager": {
+    color: "text-blue-400 border-blue-500/20",
+    msg: "You can inline-edit project status, actual spend, and timeline %. To add or delete projects go to Admin → Planning.",
+  },
+  "Finance": {
+    color: "text-emerald-400 border-emerald-500/20",
+    msg: "Read-only view of all campus projects, budgets, ROI, and CO₂ reduction targets. Contact Facility Manager or Admin for changes.",
+  },
+  "Faculty": {
+    color: "text-yellow-400 border-yellow-500/20",
+    msg: "Read-only view of sustainability projects and their current status.",
+  },
+};
+
+interface ProjectCardProps {
+  p: ProjectWithDetails;
+  canEdit?: boolean;
+  onEdit?: (p: ProjectWithDetails) => void;
+}
+
+function ProjectCard({ p, canEdit, onEdit }: ProjectCardProps) {
   const spentPct = p.budget_inr ? Math.round(((p.spent_inr ?? 0) / p.budget_inr) * 100) : 0;
   const doneMilestones = p.milestones.filter(m => m.is_done).length;
   return (
     <Card className="glass-card grain-overlay">
       <CardHeader className="pb-2">
         <div className="flex items-start justify-between gap-2">
-          <CardTitle className="text-sm font-semibold leading-tight">{p.name}</CardTitle>
-          <Badge variant="outline" className={`text-[10px] shrink-0 ${statusColors[p.status] ?? ""}`}>{p.status}</Badge>
+          <div className="flex-1 min-w-0">
+            <CardTitle className="text-sm font-semibold leading-tight">{p.name}</CardTitle>
+            {p.created_at && (
+              <p className="text-[10px] text-muted-foreground opacity-60 mt-0.5">
+                Created {new Date(p.created_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+                {p.updated_at !== p.created_at && ` · Updated ${new Date(p.updated_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}`}
+              </p>
+            )}
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <Badge variant="outline" className={`text-[10px] ${statusColors[p.status] ?? ""}`}>{p.status}</Badge>
+            {canEdit && onEdit && (
+              <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground" onClick={() => onEdit(p)}>
+                <Edit2 className="w-3 h-3" />
+              </Button>
+            )}
+          </div>
         </div>
-        {p.summary && <p className="text-xs text-muted-foreground leading-relaxed">{p.summary}</p>}
+        {p.summary && <p className="text-xs text-muted-foreground leading-relaxed mt-1">{p.summary}</p>}
       </CardHeader>
       <CardContent className="space-y-3">
         {/* Budget */}
@@ -100,7 +149,34 @@ function ProjectCard({ p }: { p: ProjectWithDetails }) {
 
 const Projects = () => {
   const { campusId } = useCampusContext();
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const role = user?.role_name ?? null;
+  const canEdit = role === "Admin" || role === "Facility Manager";
+
   const { data: projects = [], isLoading } = useProjects(campusId);
+  const updateProject = useUpdateProject(campusId);
+
+  // Inline edit dialog state
+  const [editingProject, setEditingProject] = useState<{ id: number; status: string; spent_inr: string; timeline_pct: string } | null>(null);
+
+  const handleSaveProject = () => {
+    if (!editingProject) return;
+    updateProject.mutate(
+      {
+        id: editingProject.id,
+        status: editingProject.status as ProjectWithDetails["status"],
+        spent_inr: Number(editingProject.spent_inr),
+        timeline_pct: Number(editingProject.timeline_pct),
+      },
+      {
+        onSuccess: () => { toast({ title: "Project updated ✓" }); setEditingProject(null); },
+        onError: (e) => toast({ title: "Error", description: (e as Error).message, variant: "destructive" }),
+      }
+    );
+  };
+
+  const ri = role ? (ROLE_INFO[role] ?? null) : null;
 
   const active = projects.filter(p => p.status === "In Progress" || p.status === "Planned");
   const totalBudget = projects.reduce((s, p) => s + (p.budget_inr ?? 0), 0);
@@ -120,6 +196,61 @@ const Projects = () => {
   return (
     <DashboardLayout title="Projects" breadcrumb="Projects · Sustainability Initiatives">
       <div className="max-w-[1400px] mx-auto space-y-4">
+
+        {/* Role info banner */}
+        {ri && (
+          <Card className={`glass-card grain-overlay border ${ri.color.split(" ")[1]}`}>
+            <CardContent className="pt-3 pb-3">
+              <div className="flex items-start gap-2 text-xs">
+                <Info className={`w-4 h-4 shrink-0 mt-0.5 ${ri.color.split(" ")[0]}`} />
+                <div>
+                  <span className={`font-semibold ${ri.color.split(" ")[0]}`}>{role}</span>
+                  <span className="text-muted-foreground ml-2">{ri.msg}</span>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Inline edit dialog */}
+        {canEdit && editingProject && (() => {
+          const proj = projects.find(p => p.id === editingProject.id);
+          return (
+            <Card className="glass-card grain-overlay border border-primary/30">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Edit2 className="w-4 h-4 text-primary" />Editing: {proj?.name}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 items-end">
+                  <div className="space-y-1.5">
+                    <p className="text-xs text-muted-foreground">Status</p>
+                    <Select value={editingProject.status} onValueChange={v => setEditingProject(ep => ep ? {...ep, status: v} : ep)}>
+                      <SelectTrigger className="h-9 text-xs"><SelectValue /></SelectTrigger>
+                      <SelectContent>{["Planned","In Progress","Completed","On Hold","Cancelled"].map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <p className="text-xs text-muted-foreground">Spent (Rs.)</p>
+                    <Input type="number" className="h-9 text-xs" value={editingProject.spent_inr} onChange={e => setEditingProject(ep => ep ? {...ep, spent_inr: e.target.value} : ep)} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <p className="text-xs text-muted-foreground">Timeline %</p>
+                    <Input type="number" className="h-9 text-xs" value={editingProject.timeline_pct} min={0} max={100} onChange={e => setEditingProject(ep => ep ? {...ep, timeline_pct: e.target.value} : ep)} />
+                  </div>
+                  <div className="flex gap-2">
+                    <Button className="premium-button text-xs flex-1" size="sm" onClick={handleSaveProject} disabled={updateProject.isPending}>
+                      {updateProject.isPending ? "Saving…" : "Save"}
+                    </Button>
+                    <Button variant="ghost" size="sm" className="text-xs" onClick={() => setEditingProject(null)}>Cancel</Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })()}
+
         {/* KPIs */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {isLoading ? Array(4).fill(0).map((_, i) => <Skeleton key={i} className="h-24" />) : [
@@ -151,10 +282,10 @@ const Projects = () => {
             <CardContent>
               <ResponsiveContainer width="100%" height={180}>
                 <BarChart data={categoryData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                  <XAxis dataKey="category" tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
-                  <YAxis tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} allowDecimals={false} />
-                  <Tooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.07)" />
+                  <XAxis dataKey="category" tick={{ fontSize: 10, fill: CHART_TICK }} tickLine={{ stroke: CHART_TICK }} axisLine={{ stroke: CHART_TICK }} />
+                  <YAxis tick={{ fontSize: 10, fill: CHART_TICK }} tickLine={{ stroke: CHART_TICK }} axisLine={{ stroke: CHART_TICK }} allowDecimals={false} />
+                  <Tooltip contentStyle={{ backgroundColor: "rgba(10,10,20,0.92)", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 8, fontSize: 12 }} labelStyle={{ color: "#e2e8f0" }} />
                   <Bar dataKey="count" fill="hsl(var(--chart-2))" radius={[4, 4, 0, 0]} name="Projects" />
                 </BarChart>
               </ResponsiveContainer>
@@ -173,8 +304,20 @@ const Projects = () => {
           </Card>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-            {projects.map(p => <ProjectCard key={p.id} p={p} />)}
+            {projects.map(p => (
+              <ProjectCard
+                key={p.id}
+                p={p}
+                canEdit={canEdit}
+                onEdit={proj => setEditingProject({ id: proj.id, status: proj.status, spent_inr: String(proj.spent_inr ?? 0), timeline_pct: String(proj.timeline_pct ?? 0) })}
+              />
+            ))}
           </div>
+        )}
+        {canEdit && (
+          <p className="text-xs text-muted-foreground text-center py-1">
+            To <strong>add or delete projects</strong>, go to <strong>Admin → Planning</strong> tab.
+          </p>
         )}
       </div>
     </DashboardLayout>

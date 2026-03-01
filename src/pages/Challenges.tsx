@@ -7,11 +7,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { motion } from "framer-motion";
 import {
   Zap, Leaf, Droplets, Recycle, Users, Star, Calendar,
-  TrendingUp, Award, Trophy,
+  TrendingUp, Award, Trophy, CheckCircle2, Info,
 } from "lucide-react";
 import { useCampusContext } from "@/context/CampusContext";
-import { useEcoChallenges, useJoinChallenge } from "@/hooks/useCommunity";
-import { useCurrentUser } from "@/hooks/useAuth";
+import { useEcoChallenges, useJoinChallenge, useUserChallengeIds } from "@/hooks/useCommunity";
+import { useAuth } from "@/context/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import type { EcoChallenge } from "@/lib/types";
 
@@ -34,14 +34,19 @@ function ChallengeCard({
   challenge,
   onJoin,
   joining,
+  alreadyJoined,
 }: {
-  challenge: EcoChallenge;
+  challenge: EcoChallenge & { participant_count: number };
   onJoin: (id: number) => void;
   joining: boolean;
+  alreadyJoined: boolean;
 }) {
   const Icon = categoryIcons[challenge.category?.toLowerCase() ?? "energy"] ?? Leaf;
   const endDate = challenge.end_date ? new Date(challenge.end_date).toLocaleDateString("en-IN", { day: "numeric", month: "short" }) : null;
   const startDate = challenge.start_date ? new Date(challenge.start_date).toLocaleDateString("en-IN", { day: "numeric", month: "short" }) : null;
+  const fillPct = challenge.max_participants
+    ? Math.min(100, Math.round((challenge.participant_count / challenge.max_participants) * 100))
+    : 0;
 
   return (
     <motion.div whileHover={{ y: -2 }}>
@@ -83,10 +88,10 @@ function ChallengeCard({
           {challenge.max_participants != null && (
             <div>
               <div className="flex justify-between text-[10px] text-muted-foreground mb-1">
-                <span className="flex items-center gap-1"><Users className="w-2.5 h-2.5" />Capacity</span>
+                <span className="flex items-center gap-1"><Users className="w-2.5 h-2.5" />{challenge.participant_count} joined</span>
                 <span>{challenge.max_participants} max</span>
               </div>
-              <Progress value={60} className="h-1.5" />
+              <Progress value={fillPct} className="h-1.5" />
             </div>
           )}
 
@@ -110,14 +115,20 @@ function ChallengeCard({
 
           {/* Join button */}
           {challenge.status === "active" && (
-            <Button
-              size="sm"
-              className="mt-auto text-xs h-7"
-              onClick={() => challenge.id && onJoin(Number(challenge.id))}
-              disabled={joining}
-            >
-              {joining ? "Joining…" : "Join Challenge"}
-            </Button>
+            alreadyJoined ? (
+              <div className="flex items-center gap-1.5 text-xs text-emerald-500 mt-auto pt-2">
+                <CheckCircle2 className="w-3.5 h-3.5" /> You're participating
+              </div>
+            ) : (
+              <Button
+                size="sm"
+                className="mt-auto text-xs h-7"
+                onClick={() => challenge.id && onJoin(Number(challenge.id))}
+                disabled={joining}
+              >
+                {joining ? "Joining…" : "Join Challenge"}
+              </Button>
+            )
           )}
         </CardContent>
       </Card>
@@ -128,8 +139,9 @@ function ChallengeCard({
 const Challenges = () => {
   const { campusId } = useCampusContext();
   const { data: challenges = [], isLoading } = useEcoChallenges(campusId);
-  const { data: currentUser } = useCurrentUser();
+  const { user } = useAuth();
   const joinMutation = useJoinChallenge();
+  const { data: joinedIds = new Set<number>() } = useUserChallengeIds(user?.id, user?.email);
   const { toast } = useToast();
 
   const active = challenges.filter(c => c.status === "active");
@@ -140,12 +152,12 @@ const Challenges = () => {
   const totalCarbon = challenges.reduce((s, c) => s + (c.carbon_potential_t ?? 0), 0);
 
   const handleJoin = (challengeId: number, title: string) => {
-    if (!currentUser) {
+    if (!user) {
       toast({ title: "Not logged in", description: "Please sign in to join challenges.", variant: "destructive" });
       return;
     }
     joinMutation.mutate(
-      { challengeId, userId: currentUser.id as unknown as number },
+      { challengeId, userId: user.id, userEmail: user.email },
       {
         onSuccess: () => toast({ title: "Joined! 🎉", description: `You've joined "${title}". Good luck!` }),
         onError: (e) => {
@@ -171,6 +183,17 @@ const Challenges = () => {
   return (
     <DashboardLayout title="Eco Challenges" breadcrumb="Community · Challenges">
       <div className="max-w-[1400px] mx-auto space-y-4">
+        {/* Role / flow info banner */}
+        <div className="flex items-start gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2.5 text-xs text-muted-foreground">
+          <Info className="w-3.5 h-3.5 text-primary mt-0.5 shrink-0" />
+          <div className="space-y-0.5">
+            <p><span className="font-medium text-primary">How challenges work:</span> Join an active challenge → participate during its period → Admin validates when it ends → <span className="font-medium text-emerald-400">reward points are credited to your team on the leaderboard.</span></p>
+            {user?.role_name === "Admin" && (
+              <p className="text-primary/80">As Admin: use the <span className="font-medium">Admin → Engagement</span> tab to create challenges, set end dates, and click <span className="font-medium">Validate</span> once a challenge ends to credit points.</p>
+            )}
+          </div>
+        </div>
+
         {/* KPI strip */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           {isLoading ? Array(4).fill(0).map((_, i) => <Skeleton key={i} className="h-20" />) : [
@@ -209,6 +232,7 @@ const Challenges = () => {
                     challenge={c}
                     onJoin={id => handleJoin(id, c.title)}
                     joining={joinMutation.isPending}
+                    alreadyJoined={joinedIds.has(c.id)}
                   />
                 ))}
               </div>
@@ -231,6 +255,7 @@ const Challenges = () => {
                   challenge={c}
                   onJoin={() => {}}
                   joining={false}
+                  alreadyJoined={false}
                 />
               ))}
             </div>
@@ -252,6 +277,7 @@ const Challenges = () => {
                   challenge={c}
                   onJoin={() => {}}
                   joining={false}
+                  alreadyJoined={joinedIds.has(c.id)}
                 />
               ))}
             </div>

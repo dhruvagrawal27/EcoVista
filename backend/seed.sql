@@ -562,6 +562,40 @@ SELECT
   (ARRAY['up','down','same'])[FLOOR(RANDOM()*3+1)::int]
 FROM teams t WHERE t.campus_id = 1;
 
+-- Leaderboard entries for departments
+-- (Delete first so seed is safe to re-run)
+DELETE FROM leaderboard_scores WHERE campus_id = 1 AND entity_type = 'department' AND period_label = 'Feb 2026';
+INSERT INTO leaderboard_scores (campus_id, entity_type, entity_id, period_label, period_start, period_end, total_points, energy_reduction_pct, carbon_reduction_pct, participation_pct, streak_days, rank, trend, hall_of_fame)
+SELECT
+  1, 'department', d.id,
+  'Feb 2026',
+  '2026-02-01', '2026-02-28',
+  ROUND((600 + RANDOM()*500)::numeric)::int,
+  ROUND((5  + RANDOM()*15)::numeric, 2),
+  ROUND((4  + RANDOM()*12)::numeric, 2),
+  ROUND((60 + RANDOM()*30)::numeric, 2),
+  ROUND((3  + RANDOM()*20)::numeric)::smallint,
+  ROW_NUMBER() OVER (ORDER BY RANDOM())::smallint,
+  (ARRAY['up','down','same'])[FLOOR(RANDOM()*3+1)::int],
+  (RANDOM() > 0.8)
+FROM departments d LIMIT 8;
+
+-- Leaderboard entries for buildings (as 'building' entity_type)
+DELETE FROM leaderboard_scores WHERE campus_id = 1 AND entity_type = 'building' AND period_label = 'Feb 2026';
+INSERT INTO leaderboard_scores (campus_id, entity_type, entity_id, period_label, period_start, period_end, total_points, energy_reduction_pct, carbon_reduction_pct, participation_pct, streak_days, rank, trend)
+SELECT
+  1, 'building', b.id,
+  'Feb 2026',
+  '2026-02-01', '2026-02-28',
+  ROUND((400 + RANDOM()*600)::numeric)::int,
+  ROUND((3  + RANDOM()*18)::numeric, 2),
+  ROUND((2  + RANDOM()*14)::numeric, 2),
+  ROUND((50 + RANDOM()*40)::numeric, 2),
+  ROUND((2  + RANDOM()*28)::numeric)::smallint,
+  ROW_NUMBER() OVER (ORDER BY RANDOM())::smallint,
+  (ARRAY['up','down','same'])[FLOOR(RANDOM()*3+1)::int]
+FROM buildings b WHERE b.campus_id = 1 LIMIT 10;
+
 INSERT INTO eco_challenges (campus_id, title, description, category, duration_label, target_label, max_participants, reward_points, reward_badge, carbon_potential_t, impact_score, status, start_date, end_date) VALUES
   (1, 'Zero Waste Week',
    'Eliminate single-use plastics across all campus canteens and labs for 7 consecutive days.',
@@ -595,12 +629,22 @@ INSERT INTO eco_challenges (campus_id, title, description, category, duration_la
    'completed', CURRENT_DATE - INTERVAL '60 days', CURRENT_DATE - INTERVAL '29 days')
 ON CONFLICT DO NOTHING;
 
-INSERT INTO community_events (campus_id, title, event_date, location, event_type, max_attendees) VALUES
-  (1, 'Sustainability Summit 2026',         CURRENT_DATE + INTERVAL '10 days', 'LHC Auditorium',         'Conference',  500),
-  (1, 'Solar Farm Guided Tour',             CURRENT_DATE + INTERVAL '3 days',  'Main Campus Rooftops',   'Tour',         30),
-  (1, 'AI for Climate Workshop',            CURRENT_DATE + INTERVAL '7 days',  'IT Block Seminar Hall',  'Workshop',    100),
-  (1, 'Green Careers Fair',                 CURRENT_DATE + INTERVAL '21 days', 'Student Activity Center','Fair',        400),
-  (1, 'Carbon Footprint Awareness Session', CURRENT_DATE + INTERVAL '5 days',  'Library Multipurpose',   'Seminar',     200)
+INSERT INTO community_events (campus_id, title, description, event_date, location, event_type, max_attendees) VALUES
+  (1, 'Sustainability Summit 2026',
+   'Annual flagship event bringing together students, faculty and industry leaders to discuss campus carbon goals for 2030. Includes panel discussions, live demos and networking.',
+   CURRENT_DATE + INTERVAL '10 days', 'LHC Auditorium',         'Conference',  500),
+  (1, 'Solar Farm Guided Tour',
+   'Hands-on tour of the 500 kWp rooftop solar installation. Learn how campus generates 40% of its own electricity. Hard hats provided. Limited to 30 spots.',
+   CURRENT_DATE + INTERVAL '3 days',  'Main Campus Rooftops',   'Tour',         30),
+  (1, 'AI for Climate Workshop',
+   'Interactive workshop on applying machine learning to energy forecasting, waste reduction and carbon tracking. Bring your laptop. Prerequisites: basic Python.',
+   CURRENT_DATE + INTERVAL '7 days',  'IT Block Seminar Hall',  'Workshop',    100),
+  (1, 'Green Careers Fair',
+   'Meet 40+ companies hiring in sustainability, renewable energy, ESG consulting and climate tech. Bring your CV. Open to all years.',
+   CURRENT_DATE + INTERVAL '21 days', 'Student Activity Center','Fair',        400),
+  (1, 'Carbon Footprint Awareness Session',
+   'Interactive session where students calculate their personal carbon footprint and learn actionable reduction strategies. Free carbon offset certificate for all attendees.',
+   CURRENT_DATE + INTERVAL '5 days',  'Library Multipurpose',   'Seminar',     200)
 ON CONFLICT DO NOTHING;
 
 -- =============================================================================

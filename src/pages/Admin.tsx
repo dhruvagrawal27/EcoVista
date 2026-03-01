@@ -13,9 +13,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Users, Shield, Database, Brain, FileText, Settings, RefreshCw, Activity, CheckCircle2, AlertTriangle, XCircle, Clock, BarChart3, Search, UserPlus } from "lucide-react";
+import { Users, Shield, Database, Brain, FileText, Settings, RefreshCw, Activity, CheckCircle2, AlertTriangle, XCircle, Clock, BarChart3, Search, UserPlus, Award, Calendar, Plus, Trash2, Map, FolderKanban, Edit2 } from "lucide-react";
 import { useCampusContext } from "@/context/CampusContext";
 import { useUsers, useDataSources, useMLModels, useAuditLogs, useAddUser, useToggleUserStatus, useRetrainModel, useRoles, useDepartments, usePlatformConfig, useSavePlatformConfig, useAlertConfig, useSaveAlertConfig, useInsertAuditLog } from "@/hooks/useAdmin";
+import { useEcoChallenges, useCommunityEvents, useCreateChallenge, useDeleteChallenge, useCreateEvent, useDeleteEvent, useCompleteChallenge } from "@/hooks/useCommunity";
+import { useRoadmapPhases, useRiskRegister, useUpdatePhase, useCreateRisk, useUpdateRisk, useDeleteRisk } from "@/hooks/useRoadmap";
+import { useProjects, useCreateProject, useUpdateProject, useDeleteProject } from "@/hooks/useProjects";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/AuthContext";
 
@@ -100,6 +103,241 @@ const Admin = () => {
   const savePlatformConfig = useSavePlatformConfig(campusId);
   const saveAlertConfig = useSaveAlertConfig(campusId);
   const insertAuditLog = useInsertAuditLog(campusId);
+
+  // ── Engagement data + mutations ───────────────────────────────────────────
+  const { data: challenges = [], isLoading: loadingChallenges } = useEcoChallenges(campusId);
+  const { data: events = [], isLoading: loadingEvents } = useCommunityEvents(campusId);
+  const createChallenge = useCreateChallenge(campusId);
+  const deleteChallenge = useDeleteChallenge(campusId);
+  const createEvent = useCreateEvent(campusId);
+  const deleteEvent = useDeleteEvent(campusId);
+  const completeChallenge = useCompleteChallenge(campusId);
+
+  const [newChallenge, setNewChallenge] = useState({
+    title: "", description: "", category: "Energy",
+    start_date: "", end_date: "", reward_points: "200", max_participants: "",
+  });
+  const [newEvent, setNewEvent] = useState({
+    title: "", event_date: "", location: "", event_type: "Workshop", max_attendees: "",
+  });
+
+  // ── Planning data + mutations ─────────────────────────────────────────────
+  const { data: phases = [], isLoading: loadingPhases } = useRoadmapPhases(campusId);
+  const { data: risks = [], isLoading: loadingRisks } = useRiskRegister(campusId);
+  const { data: adminProjects = [], isLoading: loadingProjects } = useProjects(campusId);
+  const updatePhase = useUpdatePhase(campusId);
+  const createRisk = useCreateRisk(campusId);
+  const updateRisk = useUpdateRisk(campusId);
+  const deleteRisk = useDeleteRisk(campusId);
+  const createProject = useCreateProject(campusId);
+  const updateProject = useUpdateProject(campusId);
+  const deleteProject = useDeleteProject(campusId);
+
+  // ── Planning edit state ───────────────────────────────────────────────────
+  const [editingPhase, setEditingPhase] = useState<{ id: number; progress_pct: string; spent_inr: string } | null>(null);
+  const [editingRisk, setEditingRisk] = useState<{ id: number; status: string; mitigation: string } | null>(null);
+  const [newRisk, setNewRisk] = useState({ risk_description: "", impact: "medium", probability: "medium", mitigation: "", owner_label: "", status: "open" });
+  const [newRiskOpen, setNewRiskOpen] = useState(false);
+  const [editingProject, setEditingProject] = useState<{ id: number; status: string; spent_inr: string; timeline_pct: string } | null>(null);
+  const [newProject, setNewProject] = useState({ name: "", summary: "", category: "Renewable Energy", status: "Planned", budget_inr: "", carbon_reduction_t_yr: "", roi_pct: "", risk_level: "Low" });
+  const [newProjectOpen, setNewProjectOpen] = useState(false);
+
+  const handleSavePhase = (id: number) => {
+    if (!editingPhase) return;
+    updatePhase.mutate(
+      { id, progress_pct: Number(editingPhase.progress_pct), spent_inr: Number(editingPhase.spent_inr) },
+      {
+        onSuccess: () => {
+          toast({ title: "Phase updated ✓" });
+          insertAuditLog.mutate({ userLabel: actorLabel, action: `Updated roadmap phase id=${id}: progress=${editingPhase.progress_pct}%, spent=${editingPhase.spent_inr}`, logType: "action" });
+          setEditingPhase(null);
+        },
+        onError: (e) => toast({ title: "Error", description: (e as Error).message, variant: "destructive" }),
+      }
+    );
+  };
+
+  const handleSaveRisk = (id: number) => {
+    if (!editingRisk) return;
+    updateRisk.mutate(
+      { id, status: editingRisk.status as "open" | "mitigated" | "closed", mitigation: editingRisk.mitigation },
+      {
+        onSuccess: () => {
+          toast({ title: "Risk updated ✓" });
+          insertAuditLog.mutate({ userLabel: actorLabel, action: `Updated risk id=${id}: status=${editingRisk.status}`, logType: "action" });
+          setEditingRisk(null);
+        },
+        onError: (e) => toast({ title: "Error", description: (e as Error).message, variant: "destructive" }),
+      }
+    );
+  };
+
+  const handleDeleteRisk = (id: number, desc: string) => {
+    deleteRisk.mutate(id, {
+      onSuccess: () => {
+        toast({ title: "Risk removed ✓" });
+        insertAuditLog.mutate({ userLabel: actorLabel, action: `Deleted risk: "${desc.slice(0, 60)}"`, logType: "action" });
+      },
+      onError: (e) => toast({ title: "Error", description: (e as Error).message, variant: "destructive" }),
+    });
+  };
+
+  const handleCreateRisk = () => {
+    if (!newRisk.risk_description) { toast({ title: "Risk description required", variant: "destructive" }); return; }
+    createRisk.mutate(
+      { ...newRisk, campus_id: campusId, impact: newRisk.impact as "low"|"medium"|"high"|"critical", probability: newRisk.probability as "low"|"medium"|"high", status: newRisk.status as "open"|"mitigated"|"closed" },
+      {
+        onSuccess: () => {
+          toast({ title: "Risk added ✓" });
+          insertAuditLog.mutate({ userLabel: actorLabel, action: `Created risk: "${newRisk.risk_description.slice(0,60)}"`, logType: "action" });
+          setNewRisk({ risk_description: "", impact: "medium", probability: "medium", mitigation: "", owner_label: "", status: "open" });
+          setNewRiskOpen(false);
+        },
+        onError: (e) => toast({ title: "Error", description: (e as Error).message, variant: "destructive" }),
+      }
+    );
+  };
+
+  const handleSaveProject = (id: number) => {
+    if (!editingProject) return;
+    updateProject.mutate(
+      { id, status: editingProject.status as "Planned"|"In Progress"|"Completed"|"On Hold"|"Cancelled", spent_inr: Number(editingProject.spent_inr), timeline_pct: Number(editingProject.timeline_pct) },
+      {
+        onSuccess: () => {
+          toast({ title: "Project updated ✓" });
+          insertAuditLog.mutate({ userLabel: actorLabel, action: `Updated project id=${id}: status=${editingProject.status}, spent=${editingProject.spent_inr}`, logType: "action" });
+          setEditingProject(null);
+        },
+        onError: (e) => toast({ title: "Error", description: (e as Error).message, variant: "destructive" }),
+      }
+    );
+  };
+
+  const handleCreateProject = () => {
+    if (!newProject.name) { toast({ title: "Project name required", variant: "destructive" }); return; }
+    createProject.mutate(
+      {
+        campus_id: campusId, name: newProject.name, summary: newProject.summary,
+        category: newProject.category, status: newProject.status as "Planned"|"In Progress"|"Completed"|"On Hold"|"Cancelled",
+        budget_inr: newProject.budget_inr ? Number(newProject.budget_inr) : null,
+        carbon_reduction_t_yr: newProject.carbon_reduction_t_yr ? Number(newProject.carbon_reduction_t_yr) : null,
+        roi_pct: newProject.roi_pct ? Number(newProject.roi_pct) : null,
+        risk_level: newProject.risk_level as "Low"|"Medium"|"High",
+        spent_inr: 0, timeline_pct: 0,
+      },
+      {
+        onSuccess: () => {
+          toast({ title: "Project created ✓" });
+          insertAuditLog.mutate({ userLabel: actorLabel, action: `Created project: "${newProject.name}"`, logType: "action" });
+          setNewProject({ name: "", summary: "", category: "Renewable Energy", status: "Planned", budget_inr: "", carbon_reduction_t_yr: "", roi_pct: "", risk_level: "Low" });
+          setNewProjectOpen(false);
+        },
+        onError: (e) => toast({ title: "Error", description: (e as Error).message, variant: "destructive" }),
+      }
+    );
+  };
+
+  const handleDeleteProject = (id: number, name: string) => {
+    deleteProject.mutate(id, {
+      onSuccess: () => {
+        toast({ title: "Project deleted" });
+        insertAuditLog.mutate({ userLabel: actorLabel, action: `Deleted project: "${name}"`, logType: "action" });
+      },
+      onError: (e) => toast({ title: "Error", description: (e as Error).message, variant: "destructive" }),
+    });
+  };
+  
+  const handleCreateChallenge = () => {
+    if (!newChallenge.title || !newChallenge.start_date || !newChallenge.end_date) {
+      toast({ title: "Title, start date and end date are required", variant: "destructive" }); return;
+    }
+    createChallenge.mutate(
+      {
+        title: newChallenge.title,
+        description: newChallenge.description,
+        category: newChallenge.category,
+        start_date: newChallenge.start_date,
+        end_date: newChallenge.end_date,
+        reward_points: Number(newChallenge.reward_points) || 0,
+        max_participants: newChallenge.max_participants ? Number(newChallenge.max_participants) : null,
+      },
+      {
+        onSuccess: () => {
+          toast({ title: "Challenge created ✓" });
+          insertAuditLog.mutate({ userLabel: actorLabel, action: `Created challenge: ${newChallenge.title}`, logType: "action" });
+          setNewChallenge({ title: "", description: "", category: "Energy", start_date: "", end_date: "", reward_points: "200", max_participants: "" });
+        },
+        onError: (e) => toast({ title: "Error", description: (e as Error).message, variant: "destructive" }),
+      }
+    );
+  };
+
+  const handleDeleteChallenge = (id: number, title: string) => {
+    deleteChallenge.mutate(id, {
+      onSuccess: () => {
+        toast({ title: "Challenge deleted" });
+        insertAuditLog.mutate({ userLabel: actorLabel, action: `Deleted challenge: ${title}`, logType: "action" });
+      },
+      onError: (e) => toast({ title: "Error", description: (e as Error).message, variant: "destructive" }),
+    });
+  };
+
+  const handleCompleteChallenge = (id: number, title: string, rewardPoints: number) => {
+    completeChallenge.mutate(
+      { challengeId: id, rewardPoints },
+      {
+        onSuccess: (result: any) => {
+          const users = result?.credited ?? 0;
+          const depts = result?.departments ?? 0;
+          toast({
+            title: `Challenge validated ✓`,
+            description: depts > 0
+              ? `"${title}" completed. ${rewardPoints} pts credited to ${users} participant(s) across ${depts} department(s) — check the Departments tab on the Leaderboard.`
+              : `"${title}" completed. ${users} participant(s) found but no department data — points not credited. Ensure users have a department assigned.`,
+          });
+          insertAuditLog.mutate({
+            userLabel: actorLabel,
+            action: `Validated challenge "${title}" — ${users} participants, ${depts} departments credited ${rewardPoints} pts`,
+            logType: "action",
+          });
+        },
+        onError: (e) => toast({ title: "Validation error", description: (e as Error).message, variant: "destructive" }),
+      }
+    );
+  };
+
+  const handleCreateEvent = () => {
+    if (!newEvent.title || !newEvent.event_date) {
+      toast({ title: "Title and date are required", variant: "destructive" }); return;
+    }
+    createEvent.mutate(
+      {
+        title: newEvent.title,
+        event_date: newEvent.event_date,
+        location: newEvent.location,
+        event_type: newEvent.event_type,
+        max_attendees: newEvent.max_attendees ? Number(newEvent.max_attendees) : null,
+      },
+      {
+        onSuccess: () => {
+          toast({ title: "Event created ✓" });
+          insertAuditLog.mutate({ userLabel: actorLabel, action: `Created event: ${newEvent.title}`, logType: "action" });
+          setNewEvent({ title: "", event_date: "", location: "", event_type: "Workshop", max_attendees: "" });
+        },
+        onError: (e) => toast({ title: "Error", description: (e as Error).message, variant: "destructive" }),
+      }
+    );
+  };
+
+  const handleDeleteEvent = (id: number, title: string) => {
+    deleteEvent.mutate(id, {
+      onSuccess: () => {
+        toast({ title: "Event deleted" });
+        insertAuditLog.mutate({ userLabel: actorLabel, action: `Deleted event: ${title}`, logType: "action" });
+      },
+      onError: (e) => toast({ title: "Error", description: (e as Error).message, variant: "destructive" }),
+    });
+  };
 
   const activeUsers = users.filter(u => u.status === "active").length;
   const connectedDS = dataSources.filter(d => d.status === "connected").length;
@@ -325,6 +563,8 @@ const Admin = () => {
             <TabsTrigger value="data">Data Sources</TabsTrigger>
             <TabsTrigger value="models">ML Models</TabsTrigger>
             <TabsTrigger value="audit">Audit Logs</TabsTrigger>
+            <TabsTrigger value="engagement" className="gap-1"><Award className="w-3.5 h-3.5" />Engagement</TabsTrigger>
+            <TabsTrigger value="planning" className="gap-1"><Map className="w-3.5 h-3.5" />Planning</TabsTrigger>
           </TabsList>
           <TabsContent value="users" className="mt-4 space-y-4">
             <div className="flex items-center gap-3">
@@ -503,6 +743,571 @@ const Admin = () => {
                 )}
               </CardContent>
             </Card>
+          </TabsContent>
+
+          {/* ── Engagement tab ─────────────────────────────────────────── */}
+          <TabsContent value="engagement" className="mt-4 space-y-6">
+
+            {/* Eco Challenges */}
+            <Card className="premium-card">
+              <CardHeader className="pb-2 flex flex-row items-center justify-between">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Award className="w-4 h-4 text-primary" />Eco Challenges
+                </CardTitle>
+                <Button size="sm" className="premium-button gap-1 h-7 text-xs"
+                  onClick={() => setNewChallenge({ title: "", description: "", category: "Energy", start_date: "", end_date: "", reward_points: "200", max_participants: "" })}>
+                  <Plus className="w-3 h-3" />New Challenge
+                </Button>
+              </CardHeader>
+              <CardContent className="p-0">
+                {loadingChallenges ? (
+                  <div className="p-4 space-y-2">{Array(4).fill(0).map((_, i) => <Skeleton key={i} className="h-10" />)}</div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Title</TableHead>
+                        <TableHead>Category</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Reward</TableHead>
+                        <TableHead>Participants</TableHead>
+                        <TableHead>End Date</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {challenges.map(c => (
+                        <TableRow key={c.id}>
+                          <TableCell className="text-sm font-medium">{c.title}</TableCell>
+                          <TableCell className="text-xs">{c.category}</TableCell>
+                          <TableCell>
+                            <Badge variant={c.status === "active" ? "default" : "outline"} className="text-[10px] capitalize">{c.status}</Badge>
+                          </TableCell>
+                          <TableCell className="text-xs">{c.reward_points} pts</TableCell>
+                          <TableCell className="text-xs">
+                            {c.participant_count}{c.max_participants ? ` / ${c.max_participants}` : ""}
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground">{c.end_date}</TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex items-center justify-end gap-1.5">
+                              {c.status !== "completed" && (
+                                <Button
+                                  size="sm" variant="outline"
+                                  className="h-7 text-xs gap-1 text-emerald-500 border-emerald-500/40 hover:bg-emerald-500/10"
+                                  disabled={completeChallenge.isPending}
+                                  onClick={() => handleCompleteChallenge(c.id, c.title, c.reward_points ?? 0)}
+                                  title="Mark as complete and credit points to all participants on leaderboard"
+                                >
+                                  <CheckCircle2 className="w-3 h-3" />Validate
+                                </Button>
+                              )}
+                              <Button size="sm" variant="destructive" className="h-7 text-xs gap-1"
+                                disabled={deleteChallenge.isPending}
+                                onClick={() => handleDeleteChallenge(c.id, c.title)}>
+                                <Trash2 className="w-3 h-3" />Delete
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                      {challenges.length === 0 && (
+                        <TableRow><TableCell colSpan={7} className="text-center text-xs text-muted-foreground py-8">No challenges yet</TableCell></TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Create Challenge inline form */}
+            <Card className="premium-card border-dashed">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-xs text-muted-foreground uppercase tracking-wider">Add New Challenge</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Title *</Label>
+                    <Input value={newChallenge.title} onChange={e => setNewChallenge(p => ({ ...p, title: e.target.value }))} placeholder="e.g. Reduce electricity 10%" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Category</Label>
+                    <Select value={newChallenge.category} onValueChange={v => setNewChallenge(p => ({ ...p, category: v }))}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {["Energy","Carbon","Water","Waste","Transport","Community","Biodiversity","Renewable"].map(c => (
+                          <SelectItem key={c} value={c}>{c}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Description</Label>
+                  <Input value={newChallenge.description} onChange={e => setNewChallenge(p => ({ ...p, description: e.target.value }))} placeholder="Brief description…" />
+                </div>
+                <div className="grid grid-cols-4 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Start Date *</Label>
+                    <Input type="date" value={newChallenge.start_date} onChange={e => setNewChallenge(p => ({ ...p, start_date: e.target.value }))} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">End Date *</Label>
+                    <Input type="date" value={newChallenge.end_date} onChange={e => setNewChallenge(p => ({ ...p, end_date: e.target.value }))} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Reward Pts</Label>
+                    <Input type="number" value={newChallenge.reward_points} onChange={e => setNewChallenge(p => ({ ...p, reward_points: e.target.value }))} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Max Participants</Label>
+                    <Input type="number" placeholder="Unlimited" value={newChallenge.max_participants} onChange={e => setNewChallenge(p => ({ ...p, max_participants: e.target.value }))} />
+                  </div>
+                </div>
+                <Button className="premium-button gap-1 text-xs" size="sm" onClick={handleCreateChallenge} disabled={createChallenge.isPending}>
+                  <Plus className="w-3 h-3" />{createChallenge.isPending ? "Creating…" : "Create Challenge"}
+                </Button>
+              </CardContent>
+            </Card>
+
+            {/* Community Events */}
+            <Card className="premium-card">
+              <CardHeader className="pb-2 flex flex-row items-center justify-between">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Calendar className="w-4 h-4 text-primary" />Community Events
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-0">
+                {loadingEvents ? (
+                  <div className="p-4 space-y-2">{Array(3).fill(0).map((_, i) => <Skeleton key={i} className="h-10" />)}</div>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Title</TableHead>
+                        <TableHead>Date</TableHead>
+                        <TableHead>Location</TableHead>
+                        <TableHead>Type</TableHead>
+                        <TableHead>RSVPs</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {events.map(ev => (
+                        <TableRow key={ev.id}>
+                          <TableCell className="text-sm font-medium">{ev.title}</TableCell>
+                          <TableCell className="text-xs">{ev.event_date}</TableCell>
+                          <TableCell className="text-xs">{ev.location ?? "—"}</TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className="text-[10px]">{ev.event_type ?? "Event"}</Badge>
+                          </TableCell>
+                          <TableCell className="text-xs">
+                            {ev.rsvp_count}{ev.max_attendees ? ` / ${ev.max_attendees}` : ""}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Button size="sm" variant="destructive" className="h-7 text-xs gap-1"
+                              disabled={deleteEvent.isPending}
+                              onClick={() => handleDeleteEvent(ev.id, ev.title)}>
+                              <Trash2 className="w-3 h-3" />Delete
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                      {events.length === 0 && (
+                        <TableRow><TableCell colSpan={6} className="text-center text-xs text-muted-foreground py-8">No events yet</TableCell></TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Create Event inline form */}
+            <Card className="premium-card border-dashed">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-xs text-muted-foreground uppercase tracking-wider">Add New Event</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Title *</Label>
+                    <Input value={newEvent.title} onChange={e => setNewEvent(p => ({ ...p, title: e.target.value }))} placeholder="e.g. Green Campus Fair 2026" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Type</Label>
+                    <Select value={newEvent.event_type} onValueChange={v => setNewEvent(p => ({ ...p, event_type: v }))}>
+                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        {["Workshop","Conference","Tour","Seminar","Fair","Webinar","Other"].map(t => (
+                          <SelectItem key={t} value={t}>{t}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Event Date *</Label>
+                    <Input type="date" value={newEvent.event_date} onChange={e => setNewEvent(p => ({ ...p, event_date: e.target.value }))} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Location</Label>
+                    <Input value={newEvent.location} onChange={e => setNewEvent(p => ({ ...p, location: e.target.value }))} placeholder="e.g. Main Auditorium" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Max Attendees</Label>
+                    <Input type="number" placeholder="Unlimited" value={newEvent.max_attendees} onChange={e => setNewEvent(p => ({ ...p, max_attendees: e.target.value }))} />
+                  </div>
+                </div>
+                <Button className="premium-button gap-1 text-xs" size="sm" onClick={handleCreateEvent} disabled={createEvent.isPending}>
+                  <Plus className="w-3 h-3" />{createEvent.isPending ? "Creating…" : "Create Event"}
+                </Button>
+              </CardContent>
+            </Card>
+
+          </TabsContent>
+
+          {/* ── Planning Tab ─────────────────────────────────────────── */}
+          <TabsContent value="planning" className="mt-4 space-y-6">
+
+            {/* Role info banner */}
+            <Card className="glass-card grain-overlay border-blue-500/20">
+              <CardContent className="pt-4 pb-3">
+                <div className="flex items-start gap-2 text-xs text-muted-foreground">
+                  <Shield className="w-4 h-4 text-blue-400 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-semibold text-blue-400">Admin — Planning Manager</span>
+                    <p className="mt-0.5">You can edit phase progress &amp; spend, manage risks (create / update / delete), and manage projects (create / update / delete). Facility Manager can also edit phases &amp; project status. Finance &amp; Faculty have read-only access. Student Leads do not see Planning.</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* ── Roadmap Phases ── */}
+            <div>
+              <h3 className="text-sm font-semibold mb-3 flex items-center gap-2"><Map className="w-4 h-4 text-primary" />Roadmap Phases — Progress &amp; Budget</h3>
+              {loadingPhases ? <Skeleton className="h-40 w-full" /> : (
+                <Card className="premium-card">
+                  <CardContent className="p-0">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>#</TableHead>
+                          <TableHead>Phase</TableHead>
+                          <TableHead>Period</TableHead>
+                          <TableHead>Progress %</TableHead>
+                          <TableHead>Budget (Rs.M)</TableHead>
+                          <TableHead>Spent (Rs.M)</TableHead>
+                          <TableHead>Risk</TableHead>
+                          <TableHead className="text-right">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {phases.map(p => (
+                          <TableRow key={p.id}>
+                            <TableCell className="text-xs font-medium">{p.phase_number}</TableCell>
+                            <TableCell className="text-xs max-w-[180px] truncate">{p.name}</TableCell>
+                            <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{p.start_date.slice(0,7)} → {p.end_date.slice(0,7)}</TableCell>
+                            <TableCell>
+                              {editingPhase?.id === p.id
+                                ? <Input type="number" className="h-7 w-20 text-xs" value={editingPhase.progress_pct} onChange={e => setEditingPhase(ep => ep ? {...ep, progress_pct: e.target.value} : ep)} min={0} max={100} />
+                                : <span className="text-xs">{p.progress_pct ?? 0}%</span>}
+                            </TableCell>
+                            <TableCell className="text-xs">{((p.budget_inr ?? 0)/1e6).toFixed(1)}</TableCell>
+                            <TableCell>
+                              {editingPhase?.id === p.id
+                                ? <Input type="number" className="h-7 w-24 text-xs" value={editingPhase.spent_inr} onChange={e => setEditingPhase(ep => ep ? {...ep, spent_inr: e.target.value} : ep)} />
+                                : <span className="text-xs">{((p.spent_inr ?? 0)/1e6).toFixed(1)}</span>}
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className={`text-[10px] ${p.risk_level === "low" ? "text-emerald-400" : p.risk_level === "medium" ? "text-yellow-400" : p.risk_level === "high" ? "text-orange-400" : "text-red-400"}`}>{p.risk_level}</Badge>
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {editingPhase?.id === p.id ? (
+                                <div className="flex gap-1 justify-end">
+                                  <Button size="sm" className="h-7 text-xs premium-button" onClick={() => handleSavePhase(p.id)} disabled={updatePhase.isPending}>Save</Button>
+                                  <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setEditingPhase(null)}>Cancel</Button>
+                                </div>
+                              ) : (
+                                <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => setEditingPhase({ id: p.id, progress_pct: String(p.progress_pct ?? 0), spent_inr: String(p.spent_inr ?? 0) })}>
+                                  <Edit2 className="w-3 h-3" />Edit
+                                </Button>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+
+            {/* ── Risk Register ── */}
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-orange-400" />Risk Register</h3>
+                <Button size="sm" className="premium-button gap-1 text-xs" onClick={() => setNewRiskOpen(true)}>
+                  <Plus className="w-3 h-3" />Add Risk
+                </Button>
+              </div>
+
+              {/* New Risk Dialog */}
+              <Dialog open={newRiskOpen} onOpenChange={setNewRiskOpen}>
+                <DialogContent className="max-w-lg">
+                  <DialogHeader><DialogTitle className="text-sm">Add New Risk</DialogTitle></DialogHeader>
+                  <div className="space-y-3">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Risk Description *</Label>
+                      <Input value={newRisk.risk_description} onChange={e => setNewRisk(r => ({...r, risk_description: e.target.value}))} placeholder="Describe the risk..." />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Impact</Label>
+                        <Select value={newRisk.impact} onValueChange={v => setNewRisk(r => ({...r, impact: v}))}>
+                          <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                          <SelectContent>{["low","medium","high","critical"].map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}</SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Probability</Label>
+                        <Select value={newRisk.probability} onValueChange={v => setNewRisk(r => ({...r, probability: v}))}>
+                          <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                          <SelectContent>{["low","medium","high"].map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}</SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Mitigation Strategy</Label>
+                      <Input value={newRisk.mitigation} onChange={e => setNewRisk(r => ({...r, mitigation: e.target.value}))} placeholder="How will this be mitigated?" />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Owner</Label>
+                        <Input value={newRisk.owner_label} onChange={e => setNewRisk(r => ({...r, owner_label: e.target.value}))} placeholder="e.g. Finance Office" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Status</Label>
+                        <Select value={newRisk.status} onValueChange={v => setNewRisk(r => ({...r, status: v}))}>
+                          <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                          <SelectContent>{["open","mitigated","closed"].map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}</SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button variant="ghost" size="sm" onClick={() => setNewRiskOpen(false)}>Cancel</Button>
+                    <Button className="premium-button gap-1 text-xs" size="sm" onClick={handleCreateRisk} disabled={createRisk.isPending}>
+                      <Plus className="w-3 h-3" />{createRisk.isPending ? "Adding…" : "Add Risk"}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+
+              {loadingRisks ? <Skeleton className="h-40 w-full" /> : (
+                <Card className="premium-card">
+                  <CardContent className="p-0">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Risk</TableHead>
+                          <TableHead>Owner</TableHead>
+                          <TableHead>Impact</TableHead>
+                          <TableHead>Prob.</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Mitigation</TableHead>
+                          <TableHead className="text-right">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {risks.map(r => (
+                          <TableRow key={r.id}>
+                            <TableCell className="text-xs max-w-[200px]">{r.risk_description}</TableCell>
+                            <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{r.owner_label ?? "—"}</TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className={`text-[10px] ${r.impact === "low" ? "text-emerald-400" : r.impact === "medium" ? "text-yellow-400" : r.impact === "high" ? "text-orange-400" : "text-red-400"}`}>{r.impact}</Badge>
+                            </TableCell>
+                            <TableCell className="text-xs text-muted-foreground">{r.probability}</TableCell>
+                            <TableCell>
+                              {editingRisk?.id === r.id
+                                ? <Select value={editingRisk.status} onValueChange={v => setEditingRisk(er => er ? {...er, status: v} : er)}>
+                                    <SelectTrigger className="h-7 w-28 text-xs"><SelectValue /></SelectTrigger>
+                                    <SelectContent>{["open","mitigated","closed"].map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}</SelectContent>
+                                  </Select>
+                                : <Badge variant="outline" className={`text-[10px] ${r.status === "open" ? "text-red-400" : r.status === "mitigated" ? "text-yellow-400" : "text-emerald-400"}`}>{r.status}</Badge>
+                              }
+                            </TableCell>
+                            <TableCell className="text-xs text-muted-foreground max-w-[180px] truncate">
+                              {editingRisk?.id === r.id
+                                ? <Input className="h-7 text-xs" value={editingRisk.mitigation} onChange={e => setEditingRisk(er => er ? {...er, mitigation: e.target.value} : er)} />
+                                : r.mitigation ?? "—"}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {editingRisk?.id === r.id ? (
+                                <div className="flex gap-1 justify-end">
+                                  <Button size="sm" className="h-7 text-xs premium-button" onClick={() => handleSaveRisk(r.id)} disabled={updateRisk.isPending}>Save</Button>
+                                  <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setEditingRisk(null)}>Cancel</Button>
+                                </div>
+                              ) : (
+                                <div className="flex gap-1 justify-end">
+                                  <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => setEditingRisk({ id: r.id, status: r.status, mitigation: r.mitigation ?? "" })}>
+                                    <Edit2 className="w-3 h-3" />Edit
+                                  </Button>
+                                  <Button size="sm" variant="ghost" className="h-7 text-xs text-red-400 hover:text-red-300" onClick={() => handleDeleteRisk(r.id, r.risk_description)} disabled={deleteRisk.isPending}>
+                                    <Trash2 className="w-3 h-3" />
+                                  </Button>
+                                </div>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+
+            {/* ── Projects ── */}
+            <div>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold flex items-center gap-2"><FolderKanban className="w-4 h-4 text-primary" />Campus Projects</h3>
+                <Button size="sm" className="premium-button gap-1 text-xs" onClick={() => setNewProjectOpen(true)}>
+                  <Plus className="w-3 h-3" />Add Project
+                </Button>
+              </div>
+
+              {/* New Project Dialog */}
+              <Dialog open={newProjectOpen} onOpenChange={setNewProjectOpen}>
+                <DialogContent className="max-w-lg">
+                  <DialogHeader><DialogTitle className="text-sm">Add New Project</DialogTitle></DialogHeader>
+                  <div className="space-y-3">
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Project Name *</Label>
+                      <Input value={newProject.name} onChange={e => setNewProject(p => ({...p, name: e.target.value}))} placeholder="e.g. Solar Rooftop Phase 3" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Summary</Label>
+                      <Input value={newProject.summary} onChange={e => setNewProject(p => ({...p, summary: e.target.value}))} placeholder="Short description..." />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Category</Label>
+                        <Select value={newProject.category} onValueChange={v => setNewProject(p => ({...p, category: v}))}>
+                          <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                          <SelectContent>{["Renewable Energy","Energy Efficiency","Carbon Sequestration","Transport","Water","Waste","Other"].map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}</SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Status</Label>
+                        <Select value={newProject.status} onValueChange={v => setNewProject(p => ({...p, status: v}))}>
+                          <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                          <SelectContent>{["Planned","In Progress","Completed","On Hold","Cancelled"].map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}</SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-3">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Budget (Rs.)</Label>
+                        <Input type="number" value={newProject.budget_inr} onChange={e => setNewProject(p => ({...p, budget_inr: e.target.value}))} placeholder="e.g. 5000000" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">CO₂ t/yr</Label>
+                        <Input type="number" value={newProject.carbon_reduction_t_yr} onChange={e => setNewProject(p => ({...p, carbon_reduction_t_yr: e.target.value}))} placeholder="e.g. 50" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Est. ROI %</Label>
+                        <Input type="number" value={newProject.roi_pct} onChange={e => setNewProject(p => ({...p, roi_pct: e.target.value}))} placeholder="e.g. 18" />
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-xs">Risk Level</Label>
+                      <Select value={newProject.risk_level} onValueChange={v => setNewProject(p => ({...p, risk_level: v}))}>
+                        <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                        <SelectContent>{["Low","Medium","High"].map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}</SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <Button variant="ghost" size="sm" onClick={() => setNewProjectOpen(false)}>Cancel</Button>
+                    <Button className="premium-button gap-1 text-xs" size="sm" onClick={handleCreateProject} disabled={createProject.isPending}>
+                      <Plus className="w-3 h-3" />{createProject.isPending ? "Creating…" : "Create Project"}
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+
+              {loadingProjects ? <Skeleton className="h-40 w-full" /> : (
+                <Card className="premium-card">
+                  <CardContent className="p-0">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Project</TableHead>
+                          <TableHead>Category</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Budget (Rs.)</TableHead>
+                          <TableHead>Spent (Rs.)</TableHead>
+                          <TableHead>Timeline %</TableHead>
+                          <TableHead>CO₂ t/yr</TableHead>
+                          <TableHead>Risk</TableHead>
+                          <TableHead className="text-right">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {adminProjects.map(p => (
+                          <TableRow key={p.id}>
+                            <TableCell className="text-xs font-medium max-w-[160px] truncate">{p.name}</TableCell>
+                            <TableCell className="text-xs text-muted-foreground">{p.category ?? "—"}</TableCell>
+                            <TableCell>
+                              {editingProject?.id === p.id
+                                ? <Select value={editingProject.status} onValueChange={v => setEditingProject(ep => ep ? {...ep, status: v} : ep)}>
+                                    <SelectTrigger className="h-7 w-28 text-xs"><SelectValue /></SelectTrigger>
+                                    <SelectContent>{["Planned","In Progress","Completed","On Hold","Cancelled"].map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}</SelectContent>
+                                  </Select>
+                                : <Badge variant="outline" className={`text-[10px] ${p.status === "In Progress" ? "text-blue-400" : p.status === "Completed" ? "text-emerald-400" : p.status === "Planned" ? "text-yellow-400" : "text-orange-400"}`}>{p.status}</Badge>}
+                            </TableCell>
+                            <TableCell className="text-xs">{p.budget_inr ? `₹${(p.budget_inr/1e5).toFixed(1)}L` : "—"}</TableCell>
+                            <TableCell>
+                              {editingProject?.id === p.id
+                                ? <Input type="number" className="h-7 w-24 text-xs" value={editingProject.spent_inr} onChange={e => setEditingProject(ep => ep ? {...ep, spent_inr: e.target.value} : ep)} />
+                                : <span className="text-xs">{p.spent_inr ? `₹${(p.spent_inr/1e5).toFixed(1)}L` : "₹0"}</span>}
+                            </TableCell>
+                            <TableCell>
+                              {editingProject?.id === p.id
+                                ? <Input type="number" className="h-7 w-16 text-xs" value={editingProject.timeline_pct} onChange={e => setEditingProject(ep => ep ? {...ep, timeline_pct: e.target.value} : ep)} min={0} max={100} />
+                                : <span className="text-xs">{p.timeline_pct ?? 0}%</span>}
+                            </TableCell>
+                            <TableCell className="text-xs">{p.carbon_reduction_t_yr?.toFixed(0) ?? "—"}</TableCell>
+                            <TableCell>
+                              <Badge variant="outline" className={`text-[10px] ${p.risk_level === "Low" ? "text-emerald-400" : p.risk_level === "Medium" ? "text-yellow-400" : "text-red-400"}`}>{p.risk_level}</Badge>
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {editingProject?.id === p.id ? (
+                                <div className="flex gap-1 justify-end">
+                                  <Button size="sm" className="h-7 text-xs premium-button" onClick={() => handleSaveProject(p.id)} disabled={updateProject.isPending}>Save</Button>
+                                  <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setEditingProject(null)}>Cancel</Button>
+                                </div>
+                              ) : (
+                                <div className="flex gap-1 justify-end">
+                                  <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => setEditingProject({ id: p.id, status: p.status, spent_inr: String(p.spent_inr ?? 0), timeline_pct: String(p.timeline_pct ?? 0) })}>
+                                    <Edit2 className="w-3 h-3" />Edit
+                                  </Button>
+                                  <Button size="sm" variant="ghost" className="h-7 text-xs text-red-400 hover:text-red-300" onClick={() => handleDeleteProject(p.id, p.name)} disabled={deleteProject.isPending}>
+                                    <Trash2 className="w-3 h-3" />
+                                  </Button>
+                                </div>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+
           </TabsContent>
         </Tabs>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
