@@ -5,9 +5,13 @@ import { useActiveAlerts, useAcknowledgeAlert, useResolveAlert } from "@/hooks/u
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/context/AuthContext";
 
 const AlertCard = () => {
   const { campusId } = useCampusContext();
+  const { user } = useAuth();
+  const canAct = user?.role_name === "Admin" || user?.role_name === "Facility Manager";
+
   const { data: alerts, isLoading } = useActiveAlerts(campusId, 5);
   const acknowledgeMutation = useAcknowledgeAlert();
   const resolveMutation = useResolveAlert();
@@ -69,24 +73,28 @@ const AlertCard = () => {
                       })}
                     </p>
                     <div className="flex gap-1.5 mt-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-6 text-[10px] gap-1 text-amber-500 border-amber-500/30"
-                        disabled={acknowledgeMutation.isPending}
-                        onClick={() => handleAcknowledge(alert.id, alert.title)}
-                      >
-                        <CheckCheck className="w-3 h-3" />Acknowledge
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-6 text-[10px] gap-1 text-emerald-500 border-emerald-500/30"
-                        disabled={resolveMutation.isPending}
-                        onClick={() => handleResolve(alert.id, alert.title)}
-                      >
-                        <ShieldCheck className="w-3 h-3" />Resolve
-                      </Button>
+                      {canAct && (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-6 text-[10px] gap-1 text-amber-500 border-amber-500/30"
+                            disabled={acknowledgeMutation.isPending}
+                            onClick={() => handleAcknowledge(alert.id, alert.title)}
+                          >
+                            <CheckCheck className="w-3 h-3" />Acknowledge
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-6 text-[10px] gap-1 text-emerald-500 border-emerald-500/30"
+                            disabled={resolveMutation.isPending}
+                            onClick={() => handleResolve(alert.id, alert.title)}
+                          >
+                            <ShieldCheck className="w-3 h-3" />Resolve
+                          </Button>
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>

@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import type {
   CarbonScopeReading,
@@ -85,5 +85,46 @@ export function useNetZeroCountdown(campusId: number) {
     },
     enabled: !!campusId,
     staleTime: 10 * 60 * 1000,
+  });
+}
+
+/* ── Carbon scenario mutations ────────────────────────────────────────── */
+
+export function useUpdateCarbonScenario(campusId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      id,
+      status,
+    }: {
+      id: number;
+      status: CarbonScenario["status"];
+    }) => {
+      const { error } = await supabase
+        .from("carbon_scenarios")
+        .update({ status })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["carbon-scenarios", campusId] });
+    },
+  });
+}
+
+export function useCreateCarbonScenario(campusId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (
+      payload: Omit<CarbonScenario, "id" | "campus_id" | "created_at">
+    ) => {
+      const { error } = await supabase
+        .from("carbon_scenarios")
+        .insert({ ...payload, campus_id: campusId, created_at: new Date().toISOString() });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["carbon-scenarios", campusId] });
+    },
   });
 }

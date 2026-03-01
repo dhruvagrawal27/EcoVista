@@ -8,17 +8,43 @@ import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend,
 } from "recharts";
-import { Sun, Wind, Battery, Zap, Gauge } from "lucide-react";
+import { Sun, Wind, Battery, Zap, Gauge, Info } from "lucide-react";
 import { useCampusContext } from "@/context/CampusContext";
-import { useSolarArrays, useRenewableMonthlyGeneration, useLatestGridState } from "@/hooks/useRenewables";
+import { useAuth } from "@/context/AuthContext";
+import type { RoleName } from "@/context/AuthContext";
+import { useToast } from "@/hooks/use-toast";
+import { useSolarArrays, useRenewableMonthlyGeneration, useLatestGridState, useUpdateSolarArrayStatus } from "@/hooks/useRenewables";
 import { useEnergyForecasts } from "@/hooks/useEnergy";
+
+const ROLE_INFO: Partial<Record<NonNullable<RoleName>, { color: string; msg: string }>> = {
+  Admin: { color: "text-violet-400 border-violet-500/20", msg: "Full access — update solar array status from this page." },
+  "Facility Manager": { color: "text-blue-400 border-blue-500/20", msg: "You can update solar array status and monitor renewable output." },
+  Finance: { color: "text-emerald-400 border-emerald-500/20", msg: "View-only — renewable generation data and grid offset metrics." },
+  Faculty: { color: "text-yellow-400 border-yellow-500/20", msg: "View-only — renewable energy overview." },
+};
+
+const ARRAY_STATUSES = ["optimal", "degraded", "offline", "maintenance"] as const;
+type ArrayStatus = typeof ARRAY_STATUSES[number];
+
+const STATUS_COLORS: Record<ArrayStatus, string> = {
+  optimal: "text-emerald-400 border-emerald-500/30",
+  degraded: "text-yellow-400 border-yellow-500/30",
+  offline: "text-red-400 border-red-500/30",
+  maintenance: "text-blue-400 border-blue-500/30",
+};
 
 const Renewables = () => {
   const { campusId } = useCampusContext();
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const role = user?.role_name as RoleName | undefined;
+  const canManage = role === "Admin" || role === "Facility Manager";
+
   const { data: arrays = [], isLoading: loadingArrays } = useSolarArrays(campusId);
   const { data: monthly = [], isLoading: loadingMonthly } = useRenewableMonthlyGeneration(campusId, 12);
   const { data: grid, isLoading: loadingGrid } = useLatestGridState(campusId);
   const { data: forecasts = [], isLoading: loadingForecasts } = useEnergyForecasts(campusId, 24);
+  const updateArrayStatus = useUpdateSolarArrayStatus(campusId);
 
   const solarKw = grid?.solar_current_kw ?? 0;
   const solarCap = grid?.solar_capacity_kw ?? 1;
@@ -48,9 +74,19 @@ const Renewables = () => {
     { name: "Grid", value: Math.max(0, Math.round((grid?.grid_import_kw ?? 0))), color: "hsl(var(--chart-1))" },
   ].filter(e => e.value > 0);
 
+  const ri = role ? (ROLE_INFO[role] ?? null) : null;
+
   return (
     <DashboardLayout title="Renewable Energy" breadcrumb="Renewables · Solar & Wind">
       <div className="max-w-[1400px] mx-auto space-y-4">
+        {/* Role banner */}
+        {ri && (
+          <div className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-xs ${ri.color}`}>
+            <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+            <span><strong>{role}</strong> — {ri.msg}</span>
+          </div>
+        )}
+
         <div className="flex items-center gap-3 text-xs text-muted-foreground">
           <Badge variant="outline" className="gap-1"><Sun className="w-3 h-3" /> Renewables</Badge>
           <span>Live Grid Data</span>
@@ -165,6 +201,7 @@ const Renewables = () => {
               <div className="space-y-3">
                 {arrays.map(a => {
                   const eff = a.latest_reading?.efficiency_pct ?? 0;
+                  const status = (a.status ?? "optimal") as ArrayStatus;
                   return (
                     <div key={a.id} className="flex items-center gap-4 border border-border rounded-lg p-3">
                       <div className="flex-1">
@@ -175,9 +212,28 @@ const Renewables = () => {
                         <Progress value={eff} className="h-2" />
                       </div>
                       <span className="text-xs font-bold text-foreground w-10 text-right">{eff.toFixed(0)}%</span>
-                      <Badge variant="outline" className={`text-[10px] h-4 ${a.status === "optimal" ? "text-emerald-400 border-emerald-500/30" : "text-red-400 border-red-500/30"}`}>
-                        {a.status}
-                      </Badge>
+                      {canManage ? (
+                        <select
+                          value={status}
+                          disabled={updateArrayStatus.isPending}
+                          onChange={e => {
+                            updateArrayStatus.mutate(
+                              { id: a.id, status: e.target.value as ArrayStatus },
+                              {
+                                onSuccess: () => toast({ title: `Array status updated to ${e.target.value}` }),
+                                onError: (err) => toast({ title: "Error", description: (err as Error).message, variant: "destructive" }),
+                              }
+                            );
+                          }}
+                          className={`text-[10px] rounded-md border px-2 py-1 bg-background ${STATUS_COLORS[status]}`}
+                        >
+                          {ARRAY_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                      ) : (
+                        <Badge variant="outline" className={`text-[10px] h-4 ${STATUS_COLORS[status]}`}>
+                          {status}
+                        </Badge>
+                      )}
                     </div>
                   );
                 })}

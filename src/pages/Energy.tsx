@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -7,10 +7,15 @@ import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { motion } from "framer-motion";
 import { AreaChart, Area, LineChart, Line, BarChart, Bar, RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
-import { Shield, Zap, Activity, TrendingUp, Building2, Cpu, Sun, Battery, AlertTriangle, Gauge, Calendar, BarChart3, Brain, FlaskConical, Thermometer } from "lucide-react";
+import { Shield, Zap, Activity, TrendingUp, Building2, Cpu, Sun, Battery, AlertTriangle, Gauge, Calendar, BarChart3, Brain, Thermometer, Info, Plus } from "lucide-react";
 import { useCampusContext } from "@/context/CampusContext";
+import { useAuth } from "@/context/AuthContext";
+import type { RoleName } from "@/context/AuthContext";
+import { useToast } from "@/hooks/use-toast";
 import {
   useEnergyRiskScore,
   useEnergyCostHeatmap,
@@ -22,7 +27,28 @@ import {
   useForecastAccuracy,
   useBuildings,
   useRetrofitSuggestions,
+  useActiveMLModel,
+  useUpdateRetrofitStatus,
+  useCreateRetrofitSuggestion,
 } from "@/hooks/useEnergy";
+
+const ROLE_INFO: Partial<Record<NonNullable<RoleName>, { color: string; msg: string }>> = {
+  Admin: { color: "text-violet-400 border-violet-500/20", msg: "Full access — manage autonomous mode, approve/reject retrofit suggestions." },
+  "Facility Manager": { color: "text-blue-400 border-blue-500/20", msg: "You can approve retrofits and toggle autonomous AI control." },
+  Finance: { color: "text-emerald-400 border-emerald-500/20", msg: "View-only — review energy costs and forecast data across all tabs." },
+  Faculty: { color: "text-yellow-400 border-yellow-500/20", msg: "View-only — energy overview and forecast tabs available." },
+};
+
+const RETROFIT_STATUSES = ["proposed", "approved", "in-progress", "completed", "rejected"] as const;
+type RetrofitStatus = typeof RETROFIT_STATUSES[number];
+
+const STATUS_NEXT: Record<RetrofitStatus, { next: RetrofitStatus; label: string; color: string }[]> = {
+  proposed: [{ next: "approved", label: "Approve", color: "text-emerald-400" }, { next: "rejected", label: "Reject", color: "text-destructive" }],
+  approved: [{ next: "in-progress", label: "Start", color: "text-blue-400" }, { next: "rejected", label: "Reject", color: "text-destructive" }],
+  "in-progress": [{ next: "completed", label: "Complete", color: "text-emerald-400" }],
+  completed: [],
+  rejected: [{ next: "proposed", label: "Reopen", color: "text-primary" }],
+};
 
 const StatusDot = ({ status }: { status: string }) => {
   const colors: Record<string, string> = { high: "bg-destructive", medium: "bg-[hsl(var(--chart-4))]", normal: "bg-[hsl(var(--chart-2))]" };
@@ -31,11 +57,20 @@ const StatusDot = ({ status }: { status: string }) => {
 
 const Energy = () => {
   const { campusId } = useCampusContext();
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const role = user?.role_name as RoleName | undefined;
+  const canManage = role === "Admin" || role === "Facility Manager";
+
   const [whatIfTemp, setWhatIfTemp] = useState([25]);
   const [whatIfOccupancy, setWhatIfOccupancy] = useState([75]);
   const [whatIfSolar, setWhatIfSolar] = useState([85]);
   const [selectedBuildingId, setSelectedBuildingId] = useState<string | null>(null);
-  const [autonomousMode, setAutonomousMode] = useState(false);
+  const [addRetrofitOpen, setAddRetrofitOpen] = useState(false);
+  const [newRetrofit, setNewRetrofit] = useState({ action: "", estimated_cost: 0, annual_saving: 0, payback_years: 0, carbon_reduction_tons: 0 });
+
+  const { data: activeModel } = useActiveMLModel();
+  const modelLabel = activeModel ? `${activeModel.name} v${activeModel.version}` : "AI Model v3.2.1";
 
   const { data: riskScore, isLoading: loadingRisk } = useEnergyRiskScore(campusId);
   const { data: heatmapData = [], isLoading: loadingHeatmap } = useEnergyCostHeatmap(campusId);
@@ -49,6 +84,27 @@ const Energy = () => {
 
   const selectedBuilding = buildings.find(b => b.id === Number(selectedBuildingId)) ?? buildings[0] ?? null;
   const { data: retrofitSuggestions = [], isLoading: loadingRetrofit } = useRetrofitSuggestions(campusId, selectedBuilding?.id);
+
+  const updateRetrofit = useUpdateRetrofitStatus(campusId);
+  const createRetrofit = useCreateRetrofitSuggestion(campusId);
+
+  const handleRetrofitStatusChange = (id: number, status: RetrofitStatus) => {
+    updateRetrofit.mutate({ id, status }, {
+      onSuccess: () => toast({ title: `Retrofit ${status}` }),
+      onError: (e) => toast({ title: "Error", description: (e as Error).message, variant: "destructive" }),
+    });
+  };
+
+  const handleAddRetrofit = () => {
+    if (!selectedBuilding) return;
+    createRetrofit.mutate(
+      { ...newRetrofit, building_id: selectedBuilding.id, status: "proposed" },
+      {
+        onSuccess: () => { setAddRetrofitOpen(false); setNewRetrofit({ action: "", estimated_cost: 0, annual_saving: 0, payback_years: 0, carbon_reduction_tons: 0 }); toast({ title: "Retrofit suggestion added" }); },
+        onError: (e) => toast({ title: "Error", description: (e as Error).message, variant: "destructive" }),
+      }
+    );
+  };
 
   const tempMultiplier = 1 + (whatIfTemp[0] - 25) * 0.03;
   const occMultiplier = whatIfOccupancy[0] / 75;
@@ -85,24 +141,43 @@ const Energy = () => {
   const totalDemandKw = solarKw + gridImportKw;
   const demandPredicted = gridState?.predicted_demand_kw ?? totalDemandKw;
 
+  const ri = role ? (ROLE_INFO[role] ?? null) : null;
+
+  // Faculty: only show overview + forecast tabs
+  const allTabs = [
+    { value: "overview", label: "Overview", icon: BarChart3, facultyAllowed: true },
+    { value: "realtime", label: "Real-Time Grid", icon: Zap, facultyAllowed: false },
+    { value: "forecast", label: "Forecast", icon: Brain, facultyAllowed: true },
+    { value: "building", label: "Building Deep Dive", icon: Building2, facultyAllowed: false },
+  ];
+  const visibleTabs = role === "Faculty" ? allTabs.filter(t => t.facultyAllowed) : allTabs;
+
   return (
     <DashboardLayout title="Energy Monitoring" breadcrumb="Energy · Intelligence System">
       <div className="max-w-[1400px] mx-auto space-y-4">
+        {/* Role banner */}
+        {ri && (
+          <div className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-xs ${ri.color}`}>
+            <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+            <span><strong>{role}</strong> — {ri.msg}</span>
+          </div>
+        )}
+
         <div className="flex items-center gap-3 text-xs text-muted-foreground">
           <Badge variant="outline" className="gap-1"><Activity className="w-3 h-3" /> Live</Badge>
-          <span>AI Model v3.2.1</span>
+          <span>{modelLabel}</span>
           <span>Data Latency: 1.2s</span>
           <span>Last Updated: Just now</span>
           <Badge variant="outline" className="gap-1 ml-auto">Confidence: 94%</Badge>
         </div>
 
         <Tabs defaultValue="overview" className="space-y-4">
-          <TabsList className="grid w-full grid-cols-5 h-11">
-            <TabsTrigger value="overview" className="gap-1.5"><BarChart3 className="w-3.5 h-3.5" />Overview</TabsTrigger>
-            <TabsTrigger value="realtime" className="gap-1.5"><Zap className="w-3.5 h-3.5" />Real-Time Grid</TabsTrigger>
-            <TabsTrigger value="forecast" className="gap-1.5"><Brain className="w-3.5 h-3.5" />Forecast</TabsTrigger>
-            <TabsTrigger value="building" className="gap-1.5"><Building2 className="w-3.5 h-3.5" />Building Deep Dive</TabsTrigger>
-            <TabsTrigger value="optimization" className="gap-1.5"><FlaskConical className="w-3.5 h-3.5" />Optimization Lab</TabsTrigger>
+          <TabsList className={`grid w-full h-11`} style={{ gridTemplateColumns: `repeat(${visibleTabs.length}, 1fr)` }}>
+            {visibleTabs.map(tab => (
+              <TabsTrigger key={tab.value} value={tab.value} className="gap-1.5">
+                <tab.icon className="w-3.5 h-3.5" />{tab.label}
+              </TabsTrigger>
+            ))}
           </TabsList>
 
           {/* OVERVIEW TAB */}
@@ -314,8 +389,8 @@ const Energy = () => {
                   <ResponsiveContainer width="100%" height={300}>
                     <AreaChart data={forecastChartData}>
                       <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                      <XAxis dataKey="hour" tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
-                      <YAxis tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
+                      <XAxis dataKey="hour" tick={{ fontSize: 10, fill: "hsl(215 16% 47%)" }} />
+                      <YAxis tick={{ fontSize: 10, fill: "hsl(215 16% 47%)" }} />
                       <Tooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }} />
                       <Area dataKey="upper" fill="hsl(var(--chart-1) / 0.08)" stroke="none" />
                       <Area dataKey="lower" fill="hsl(var(--background))" stroke="none" />
@@ -337,8 +412,8 @@ const Energy = () => {
                     <ResponsiveContainer width="100%" height={180}>
                       <LineChart data={accuracyChartData}>
                         <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                        <XAxis dataKey="day" tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
-                        <YAxis domain={[80, 100]} tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
+                        <XAxis dataKey="day" tick={{ fontSize: 10, fill: "hsl(215 16% 47%)" }} />
+                        <YAxis domain={[80, 100]} tick={{ fontSize: 10, fill: "hsl(215 16% 47%)" }} />
                         <Tooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }} />
                         <Line dataKey="accuracy" stroke="hsl(var(--chart-2))" strokeWidth={2} dot={false} />
                       </LineChart>
@@ -412,23 +487,48 @@ const Energy = () => {
 
               <Card className="glass-card grain-overlay">
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-sm flex items-center gap-2"><TrendingUp className="w-4 h-4 text-primary" />AI Retrofit Suggestions</CardTitle>
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-sm flex items-center gap-2"><TrendingUp className="w-4 h-4 text-primary" />AI Retrofit Suggestions</CardTitle>
+                    {canManage && selectedBuilding && (
+                      <Button size="sm" variant="outline" className="h-6 text-[10px] gap-1" onClick={() => setAddRetrofitOpen(true)}>
+                        <Plus className="w-3 h-3" />Add
+                      </Button>
+                    )}
+                  </div>
                 </CardHeader>
                 <CardContent>
                   {loadingRetrofit ? <Skeleton className="h-[200px] w-full" /> : (
                     <div className="space-y-3">
-                      {retrofitSuggestions.map((r) => (
-                        <motion.div key={r.id} whileHover={{ x: 4 }} className="border border-border rounded-lg p-3 space-y-1">
-                          <p className="text-xs font-semibold text-foreground">{r.action}</p>
-                          <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
-                            <span>Cost: ₹{((r.estimated_cost ?? 0) / 100000).toFixed(1)}L</span>
-                            <span>Saves: ₹{((r.annual_saving ?? 0) / 100000).toFixed(1)}L/yr</span>
-                            <span>Payback: {r.payback_years ?? "?"} yrs</span>
-                            <Badge variant="outline" className="text-[10px] h-4">-{r.carbon_reduction_tons ?? 0} tCO₂</Badge>
-                          </div>
-                          <Progress value={r.payback_years ? Math.min(100, 100 / r.payback_years * 2) : 0} className="h-1" />
-                        </motion.div>
-                      ))}
+                      {retrofitSuggestions.map((r) => {
+                        const status = (r.status ?? "proposed") as RetrofitStatus;
+                        const actions = STATUS_NEXT[status] ?? [];
+                        return (
+                          <motion.div key={r.id} whileHover={{ x: 4 }} className="border border-border rounded-lg p-3 space-y-1">
+                            <div className="flex items-center gap-2">
+                              <p className="text-xs font-semibold text-foreground flex-1">{r.action}</p>
+                              <Badge variant="outline" className="text-[10px] h-4 capitalize">{status}</Badge>
+                            </div>
+                            <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
+                              <span>Cost: ₹{((r.estimated_cost ?? 0) / 100000).toFixed(1)}L</span>
+                              <span>Saves: ₹{((r.annual_saving ?? 0) / 100000).toFixed(1)}L/yr</span>
+                              <span>Payback: {r.payback_years ?? "?"} yrs</span>
+                              <Badge variant="outline" className="text-[10px] h-4">-{r.carbon_reduction_tons ?? 0} tCO₂</Badge>
+                            </div>
+                            <Progress value={r.payback_years ? Math.min(100, 100 / r.payback_years * 2) : 0} className="h-1" />
+                            {canManage && actions.length > 0 && (
+                              <div className="flex gap-2 justify-end pt-1">
+                                {actions.map(({ next, label, color }) => (
+                                  <Button key={next} size="sm" variant="outline" className={`h-5 text-[10px] ${color}`}
+                                    disabled={updateRetrofit.isPending}
+                                    onClick={() => handleRetrofitStatusChange(r.id, next)}>
+                                    {label}
+                                  </Button>
+                                ))}
+                              </div>
+                            )}
+                          </motion.div>
+                        );
+                      })}
                       {retrofitSuggestions.length === 0 && (
                         <p className="text-xs text-muted-foreground text-center mt-4">No retrofit suggestions available</p>
                       )}
@@ -439,76 +539,35 @@ const Energy = () => {
             </div>
           </TabsContent>
 
-          {/* OPTIMIZATION LAB TAB */}
-          <TabsContent value="optimization" className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Card className="glass-card grain-overlay">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm flex items-center gap-2"><Brain className="w-4 h-4 text-primary" />Autonomous Mode</CardTitle>
-                  <CardDescription className="text-xs">AI-driven HVAC scheduling & load management</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex items-center justify-between mb-4">
-                    <span className="text-sm text-foreground">{autonomousMode ? "Active" : "Manual Mode"}</span>
-                    <Button size="sm" variant={autonomousMode ? "default" : "outline"} className="rounded-full"
-                      onClick={() => setAutonomousMode(!autonomousMode)}>
-                      {autonomousMode ? "Deactivate" : "Activate AI Control"}
-                    </Button>
-                  </div>
-                  {autonomousMode && (
-                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="bg-primary/5 border border-primary/20 rounded-lg p-3 space-y-2">
-                      <p className="text-xs text-foreground font-medium">AI is managing 12 HVAC zones</p>
-                      <p className="text-xs text-muted-foreground">Estimated savings: ₹18,400/day</p>
-                      <p className="text-xs text-muted-foreground">Next adjustment in 14 minutes</p>
-                    </motion.div>
-                  )}
-                </CardContent>
-              </Card>
-
-              <Card className="glass-card grain-overlay">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm">Peak Shaving Simulator</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {loadingProfiles ? <Skeleton className="h-[200px] w-full" /> : (
-                    <ResponsiveContainer width="100%" height={200}>
-                      <AreaChart data={weekdayLoad}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                        <XAxis dataKey="hour" tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
-                        <YAxis tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
-                        <Tooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }} />
-                        <Area dataKey="load" fill="hsl(var(--chart-1) / 0.2)" stroke="hsl(var(--chart-1))" strokeWidth={2} />
-                      </AreaChart>
-                    </ResponsiveContainer>
-                  )}
-                  <p className="text-xs text-muted-foreground text-center mt-2">Battery discharge reduces peak demand by ~18%</p>
-                </CardContent>
-              </Card>
-            </div>
-
-            <Card className="glass-card grain-overlay">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm">Carbon vs Cost Tradeoff — Retrofit Analysis</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {loadingRetrofit ? <Skeleton className="h-[250px] w-full" /> : (
-                  <ResponsiveContainer width="100%" height={250}>
-                    <BarChart data={retrofitSuggestions}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                      <XAxis dataKey="action_title" tick={{ fontSize: 9, fill: "hsl(var(--muted-foreground))" }} angle={-15} textAnchor="end" height={60} />
-                      <YAxis yAxisId="cost" tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
-                      <YAxis yAxisId="carbon" orientation="right" tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
-                      <Tooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }} />
-                      <Bar yAxisId="cost" dataKey="annual_saving_inr" fill="hsl(var(--chart-1))" name="Annual Saving (₹)" radius={[4, 4, 0, 0]} />
-                      <Bar yAxisId="carbon" dataKey="carbon_reduction_tco2" fill="hsl(var(--chart-2))" name="CO₂ Reduction (t)" radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
         </Tabs>
       </div>
+
+      {/* Add Retrofit dialog */}
+      <Dialog open={addRetrofitOpen} onOpenChange={v => !v && setAddRetrofitOpen(false)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle className="text-sm">Add Retrofit Suggestion</DialogTitle></DialogHeader>
+          <div className="space-y-3 text-xs">
+            <div><p className="text-muted-foreground mb-1">Action Description</p>
+              <Input value={newRetrofit.action} onChange={e => setNewRetrofit(p => ({ ...p, action: e.target.value }))} className="h-8 text-xs" /></div>
+            <div className="grid grid-cols-2 gap-2">
+              <div><p className="text-muted-foreground mb-1">Estimated Cost (₹)</p>
+                <Input type="number" value={newRetrofit.estimated_cost} onChange={e => setNewRetrofit(p => ({ ...p, estimated_cost: +e.target.value }))} className="h-8 text-xs" /></div>
+              <div><p className="text-muted-foreground mb-1">Annual Saving (₹)</p>
+                <Input type="number" value={newRetrofit.annual_saving} onChange={e => setNewRetrofit(p => ({ ...p, annual_saving: +e.target.value }))} className="h-8 text-xs" /></div>
+              <div><p className="text-muted-foreground mb-1">Payback Years</p>
+                <Input type="number" value={newRetrofit.payback_years} onChange={e => setNewRetrofit(p => ({ ...p, payback_years: +e.target.value }))} className="h-8 text-xs" /></div>
+              <div><p className="text-muted-foreground mb-1">CO₂ Reduction (t)</p>
+                <Input type="number" value={newRetrofit.carbon_reduction_tons} onChange={e => setNewRetrofit(p => ({ ...p, carbon_reduction_tons: +e.target.value }))} className="h-8 text-xs" /></div>
+            </div>
+          </div>
+          <DialogFooter className="gap-2 mt-2">
+            <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setAddRetrofitOpen(false)}>Cancel</Button>
+            <Button size="sm" className="h-7 text-xs premium-button" disabled={createRetrofit.isPending || !newRetrofit.action} onClick={handleAddRetrofit}>
+              {createRetrofit.isPending ? "Saving…" : "Add"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </DashboardLayout>
   );
 };

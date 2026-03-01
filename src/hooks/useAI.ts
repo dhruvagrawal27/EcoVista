@@ -85,3 +85,27 @@ export function useMLModelPerformance(days = 30) {
     staleTime: 30 * 60 * 1000,
   });
 }
+
+/* ── Create recommendation ─────────────────────────────────────────── */
+
+export function useCreateRecommendation(campusId: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (
+      payload: Omit<AIRecommendation, "id" | "campus_id" | "created_at" | "updated_at">
+    ) => {
+      const now = new Date().toISOString();
+      const { error } = await supabase.from("ai_recommendations").insert({
+        ...payload,
+        campus_id: campusId,
+        status: "new",
+        created_at: now,
+        updated_at: now,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["ai-recommendations"] });
+    },
+  });
+}

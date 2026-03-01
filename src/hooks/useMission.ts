@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import type { MissionDecision, MissionInsight } from "@/lib/types";
 
@@ -34,5 +34,54 @@ export function useMissionInsights(campusId: number) {
     },
     enabled: !!campusId,
     staleTime: 10 * 60 * 1000,
+  });
+}
+
+/* ── Mission decision mutations ─────────────────────────────────────── */
+
+export function useCreateMissionDecision(campusId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: Omit<MissionDecision, "id" | "campus_id">) => {
+      const { error } = await supabase
+        .from("mission_decisions")
+        .insert({ ...payload, campus_id: campusId });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["mission-decisions", campusId] });
+    },
+  });
+}
+
+export function useUpdateMissionDecision(campusId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, ...patch }: Partial<MissionDecision> & { id: number }) => {
+      const { error } = await supabase
+        .from("mission_decisions")
+        .update(patch)
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["mission-decisions", campusId] });
+    },
+  });
+}
+
+export function useDeleteMissionDecision(campusId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const { error } = await supabase
+        .from("mission_decisions")
+        .delete()
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["mission-decisions", campusId] });
+    },
   });
 }

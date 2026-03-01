@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import type {
   SolarArray,
@@ -94,5 +94,29 @@ export function useLatestGridState(campusId: number) {
     enabled: !!campusId,
     staleTime: 60 * 1000,
     refetchInterval: 60 * 1000,
+  });
+}
+
+/* ── Solar array status mutation ────────────────────────────────────── */
+
+export function useUpdateSolarArrayStatus(campusId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      id,
+      status,
+    }: {
+      id: number;
+      status: SolarArray["status"];
+    }) => {
+      const { error } = await supabase
+        .from("solar_arrays")
+        .update({ status })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["solar-arrays", campusId] });
+    },
   });
 }

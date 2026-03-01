@@ -1,24 +1,76 @@
+import { useState } from "react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { motion } from "framer-motion";
 import { AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from "recharts";
-import { Leaf, Target, TrendingDown, AlertTriangle, Globe, Factory, Car, ShoppingBag, Trash2, Plane, Zap } from "lucide-react";
+import { Leaf, Target, TrendingDown, AlertTriangle, Globe, Factory, Car, ShoppingBag, Trash2, Plane, Zap, Info, Plus } from "lucide-react";
 import { useCampusContext } from "@/context/CampusContext";
-import { useCarbonScopes, useCarbonTrend, useCarbonScenarios, useNetZeroCountdown } from "@/hooks/useCarbon";
+import { useAuth } from "@/context/AuthContext";
+import type { RoleName } from "@/context/AuthContext";
+import { useToast } from "@/hooks/use-toast";
+import { useCarbonScopes, useCarbonTrend, useCarbonScenarios, useNetZeroCountdown, useUpdateCarbonScenario, useCreateCarbonScenario } from "@/hooks/useCarbon";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const SCOPE_COLORS = ["hsl(var(--chart-1))", "hsl(var(--chart-2))", "hsl(var(--chart-4))"];
 const SCOPE_ICONS = [Factory, Leaf, Globe];
 const SOURCE_ICONS = [Factory, Zap, Car, ShoppingBag, Trash2, Plane];
 
+const ROLE_INFO: Partial<Record<NonNullable<RoleName>, { color: string; msg: string }>> = {
+  Admin: { color: "text-violet-400 border-violet-500/20", msg: "Full access — add scenarios and approve/reject carbon reduction plans." },
+  "Facility Manager": { color: "text-blue-400 border-blue-500/20", msg: "You can add and approve carbon scenarios." },
+  Finance: { color: "text-emerald-400 border-emerald-500/20", msg: "Approve finance-relevant scenarios. View carbon liability exposure." },
+  Faculty: { color: "text-yellow-400 border-yellow-500/20", msg: "View-only — browse carbon data and scenario plans." },
+};
+
+type ScenarioStatus = "proposed" | "approved" | "in-progress" | "completed" | "rejected";
+const SCENARIO_STATUS_NEXT: Record<ScenarioStatus, { next: ScenarioStatus; label: string; color: string }[]> = {
+  proposed: [{ next: "approved", label: "Approve", color: "text-emerald-400" }, { next: "rejected", label: "Reject", color: "text-destructive" }],
+  approved: [{ next: "in-progress", label: "Start", color: "text-blue-400" }, { next: "rejected", label: "Reject", color: "text-destructive" }],
+  "in-progress": [{ next: "completed", label: "Complete", color: "text-emerald-400" }],
+  completed: [],
+  rejected: [{ next: "proposed", label: "Reopen", color: "text-primary" }],
+};
+
 const Carbon = () => {
   const { campusId } = useCampusContext();
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const role = user?.role_name as RoleName | undefined;
+  const canManage = role === "Admin" || role === "Facility Manager" || role === "Finance";
+  const canCreate = role === "Admin" || role === "Facility Manager";
+
+  const [addScenarioOpen, setAddScenarioOpen] = useState(false);
+  const [newScenario, setNewScenario] = useState({ name: "", impact_tco2e_yr: 0, timeline_months: 0, cost_inr: 0, feasibility_pct: 0 });
+
   const { data: countdown, isLoading: countdownLoading } = useNetZeroCountdown(campusId);
   const { data: scopeReadings, isLoading: scopesLoading } = useCarbonScopes(campusId);
   const { data: trend, isLoading: trendLoading } = useCarbonTrend(campusId, 12);
   const { data: scenarios, isLoading: scenariosLoading } = useCarbonScenarios(campusId);
+  const updateScenario = useUpdateCarbonScenario(campusId);
+  const createScenario = useCreateCarbonScenario(campusId);
+
+  const handleScenarioStatus = (id: number, status: ScenarioStatus) => {
+    updateScenario.mutate({ id, status }, {
+      onSuccess: () => toast({ title: `Scenario ${status}` }),
+      onError: (e) => toast({ title: "Error", description: (e as Error).message, variant: "destructive" }),
+    });
+  };
+
+  const handleAddScenario = () => {
+    createScenario.mutate({ ...newScenario, status: "proposed", created_by: null }, {
+      onSuccess: () => {
+        setAddScenarioOpen(false);
+        setNewScenario({ name: "", impact_tco2e_yr: 0, timeline_months: 0, cost_inr: 0, feasibility_pct: 0 });
+        toast({ title: "Scenario added" });
+      },
+      onError: (e) => toast({ title: "Error", description: (e as Error).message, variant: "destructive" }),
+    });
+  };
 
   const campus = countdown?.campus;
   const milestones = countdown?.milestones ?? [];
@@ -55,9 +107,19 @@ const Carbon = () => {
     0
   );
 
+  const ri = role ? (ROLE_INFO[role] ?? null) : null;
+
   return (
     <DashboardLayout title="Carbon Tracking" breadcrumb="Carbon · Intelligence">
       <div className="max-w-[1400px] mx-auto space-y-4">
+        {/* Role banner */}
+        {ri && (
+          <div className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-xs ${ri.color}`}>
+            <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+            <span><strong>{role}</strong> — {ri.msg}</span>
+          </div>
+        )}
+
         <div className="flex items-center gap-3 text-xs text-muted-foreground">
           <Badge variant="outline" className="gap-1"><Leaf className="w-3 h-3" /> Scope 1-3</Badge>
           <span>AI Model v2.8</span>
@@ -212,8 +274,17 @@ const Carbon = () => {
         {/* Scenario Planner */}
         <Card className="glass-card grain-overlay">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm flex items-center gap-2"><Target className="w-4 h-4 text-primary" />Carbon Scenario Planner</CardTitle>
-            <CardDescription className="text-xs">Model the impact of interventions on net-zero timeline</CardDescription>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-sm flex items-center gap-2"><Target className="w-4 h-4 text-primary" />Carbon Scenario Planner</CardTitle>
+                <CardDescription className="text-xs">Model the impact of interventions on net-zero timeline</CardDescription>
+              </div>
+              {canCreate && (
+                <Button size="sm" variant="outline" className="h-6 text-[10px] gap-1" onClick={() => setAddScenarioOpen(true)}>
+                  <Plus className="w-3 h-3" />Add Scenario
+                </Button>
+              )}
+            </div>
           </CardHeader>
           <CardContent>
             {scenariosLoading ? (
@@ -221,22 +292,40 @@ const Carbon = () => {
             ) : (
               <>
                 <div className="space-y-3">
-                  {(scenarios ?? []).map((s) => (
-                    <motion.div key={s.id} whileHover={{ x: 4 }} className="border border-border rounded-lg p-3 flex items-center gap-4">
-                      <div className="flex-1">
-                        <p className="text-sm font-medium text-foreground">{s.name}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {s.timeline_months ? `${s.timeline_months} months` : "—"} · ₹{((s.cost_inr ?? 0) / 1000000).toFixed(1)}M
-                        </p>
-                      </div>
-                      <div className="text-center">
-                        <p className="text-lg font-bold text-primary">-{s.impact_tco2e_yr}</p>
-                        <p className="text-[10px] text-muted-foreground">tCO₂e/yr</p>
-                      </div>
-                      <Progress value={s.feasibility_pct ?? 0} className="w-20 h-1.5" />
-                      <span className="text-xs text-muted-foreground w-10 text-right">{s.feasibility_pct ?? 0}%</span>
-                    </motion.div>
-                  ))}
+                  {(scenarios ?? []).map((s) => {
+                    const status = (s.status ?? "proposed") as ScenarioStatus;
+                    const actions = SCENARIO_STATUS_NEXT[status] ?? [];
+                    return (
+                      <motion.div key={s.id} whileHover={{ x: 4 }} className="border border-border rounded-lg p-3 flex items-center gap-4">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-1">
+                            <p className="text-sm font-medium text-foreground">{s.name}</p>
+                            <Badge variant="outline" className="text-[10px] h-4 capitalize">{status}</Badge>
+                          </div>
+                          <p className="text-xs text-muted-foreground">
+                            {s.timeline_months ? `${s.timeline_months} months` : "—"} · ₹{((s.cost_inr ?? 0) / 1000000).toFixed(1)}M
+                          </p>
+                        </div>
+                        <div className="text-center">
+                          <p className="text-lg font-bold text-primary">-{s.impact_tco2e_yr}</p>
+                          <p className="text-[10px] text-muted-foreground">tCO₂e/yr</p>
+                        </div>
+                        <Progress value={s.feasibility_pct ?? 0} className="w-20 h-1.5" />
+                        <span className="text-xs text-muted-foreground w-10 text-right">{s.feasibility_pct ?? 0}%</span>
+                        {canManage && actions.length > 0 && (
+                          <div className="flex gap-1">
+                            {actions.map(({ next, label, color }) => (
+                              <Button key={next} size="sm" variant="outline" className={`h-5 text-[10px] ${color}`}
+                                disabled={updateScenario.isPending}
+                                onClick={() => handleScenarioStatus(s.id, next)}>
+                                {label}
+                              </Button>
+                            ))}
+                          </div>
+                        )}
+                      </motion.div>
+                    );
+                  })}
                 </div>
                 <div className="bg-accent/30 rounded-lg p-4 mt-4 text-center">
                   <p className="text-xs text-muted-foreground">If all scenarios implemented</p>
@@ -274,6 +363,33 @@ const Carbon = () => {
           </CardContent>
         </Card>
       </div>
+
+      {/* Add Scenario dialog */}
+      <Dialog open={addScenarioOpen} onOpenChange={v => !v && setAddScenarioOpen(false)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle className="text-sm">Add Carbon Scenario</DialogTitle></DialogHeader>
+          <div className="space-y-3 text-xs">
+            <div><p className="text-muted-foreground mb-1">Scenario Name</p>
+              <Input value={newScenario.name} onChange={e => setNewScenario(p => ({ ...p, name: e.target.value }))} className="h-8 text-xs" /></div>
+            <div className="grid grid-cols-2 gap-2">
+              <div><p className="text-muted-foreground mb-1">CO₂ Impact (tCO₂e/yr)</p>
+                <Input type="number" value={newScenario.impact_tco2e_yr} onChange={e => setNewScenario(p => ({ ...p, impact_tco2e_yr: +e.target.value }))} className="h-8 text-xs" /></div>
+              <div><p className="text-muted-foreground mb-1">Timeline (months)</p>
+                <Input type="number" value={newScenario.timeline_months} onChange={e => setNewScenario(p => ({ ...p, timeline_months: +e.target.value }))} className="h-8 text-xs" /></div>
+              <div><p className="text-muted-foreground mb-1">Cost (₹)</p>
+                <Input type="number" value={newScenario.cost_inr} onChange={e => setNewScenario(p => ({ ...p, cost_inr: +e.target.value }))} className="h-8 text-xs" /></div>
+              <div><p className="text-muted-foreground mb-1">Feasibility (%)</p>
+                <Input type="number" value={newScenario.feasibility_pct} onChange={e => setNewScenario(p => ({ ...p, feasibility_pct: +e.target.value }))} className="h-8 text-xs" /></div>
+            </div>
+          </div>
+          <DialogFooter className="gap-2 mt-2">
+            <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setAddScenarioOpen(false)}>Cancel</Button>
+            <Button size="sm" className="h-7 text-xs premium-button" disabled={createScenario.isPending || !newScenario.name} onClick={handleAddScenario}>
+              {createScenario.isPending ? "Saving…" : "Add"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </DashboardLayout>
   );
 };

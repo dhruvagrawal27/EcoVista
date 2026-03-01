@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import type {
   EnergyReading,
@@ -14,6 +14,7 @@ import type {
   EnergyCostDaily,
   RetrofitSuggestion,
   Building,
+  MLModel,
 } from "@/lib/types";
 
 export function useEnergyReadings(campusId: number, hours = 24) {
@@ -297,3 +298,70 @@ export function useBuildings(campusId: number) {
     staleTime: 15 * 60 * 1000,
   });
 }
+
+/* ── Retrofit mutations ─────────────────────────────────────────────── */
+
+export function useUpdateRetrofitStatus(campusId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      id,
+      status,
+    }: {
+      id: number;
+      status: RetrofitSuggestion["status"];
+    }) => {
+      const { error } = await supabase
+        .from("retrofit_suggestions")
+        .update({ status })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["retrofit-suggestions", campusId] });
+    },
+  });
+}
+
+export function useCreateRetrofitSuggestion(campusId: number) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (
+      payload: Omit<RetrofitSuggestion, "id" | "campus_id" | "created_at">
+    ) => {
+      const { error } = await supabase
+        .from("retrofit_suggestions")
+        .insert({ ...payload, campus_id: campusId, created_at: new Date().toISOString() });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["retrofit-suggestions", campusId] });
+    },
+  });
+}
+
+/* ── ML model name query ─────────────────────────────────────────────── */
+
+export function useActiveMLModel() {
+  return useQuery<MLModel | null>({
+    queryKey: ["ml-model-active"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("ml_models")
+        .select("*")
+        .eq("status", "production")
+        .order("deployed_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return data as MLModel | null;
+    },
+    staleTime: 30 * 60 * 1000,
+  });
+}
+
+/* ── Autonomous mode persistence ────────────────────────────────────── */
+
+/** Stores autonomous mode toggle per campus in a simple campus_settings-like key. */
+export const AUTONOMOUS_MODE_KEY = (campusId: number) =>
+  `ecovista_autonomous_${campusId}`;
