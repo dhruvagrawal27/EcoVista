@@ -1,0 +1,1 @@
+{"features": ["gross_demand_kw", "hour", "dow", "month", "temperature", "occupancy", "solar_irr", "hour_sin", "hour_cos"]}
