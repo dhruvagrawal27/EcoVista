@@ -1,176 +1,395 @@
+﻿import { useState, useEffect } from "react";
 import DashboardLayout from "@/components/layout/DashboardLayout";
-import { motion } from "framer-motion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Slider } from "@/components/ui/slider";
-import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { User, Bell, Monitor, Shield, Brain, Clock, BarChart3, Smartphone, Mail, Laptop } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Separator } from "@/components/ui/separator";
+import { motion } from "framer-motion";
+import {
+  User, Bell, Shield, Monitor, Brain, Globe, LogOut,
+  Smartphone, MapPin, Clock, CheckCircle2, XCircle, Save,
+} from "lucide-react";
+import { useAuth } from "@/context/AuthContext";
+import { useLogout } from "@/hooks/useAuth";
+import { useCurrentUserSessions } from "@/hooks/useAdmin";
+import { useToast } from "@/hooks/use-toast";
 
-const sessions = [
-  { device: "MacBook Pro — Chrome", location: "Campus WiFi", time: "Active now", current: true, icon: Laptop },
-  { device: "iPhone 15 — Safari", location: "Mobile Data", time: "2 hrs ago", current: false, icon: Smartphone },
-  { device: "Windows Desktop — Edge", location: "Office LAN", time: "Yesterday", current: false, icon: Monitor },
-];
+// ── Per-user preference persistence in localStorage ───────────────────────
+function prefsKey(userId: string, section: string) {
+  return `ecovista_prefs_${userId}_${section}`;
+}
 
-const Settings = () => (
-  <DashboardLayout title="Settings" breadcrumb="System · Settings">
-    <div className="space-y-6 max-w-4xl">
-      <Tabs defaultValue="profile">
-        <TabsList>
-          <TabsTrigger value="profile">Profile</TabsTrigger>
-          <TabsTrigger value="notifications">Notifications</TabsTrigger>
-          <TabsTrigger value="display">Display</TabsTrigger>
-          <TabsTrigger value="security">Security</TabsTrigger>
-          <TabsTrigger value="ai">AI Preferences</TabsTrigger>
-        </TabsList>
+function loadPrefs<T>(userId: string | undefined, section: string, defaults: T): T {
+  if (!userId) return defaults;
+  try {
+    const raw = localStorage.getItem(prefsKey(userId, section));
+    if (!raw) return defaults;
+    return { ...defaults, ...JSON.parse(raw) } as T;
+  } catch {
+    return defaults;
+  }
+}
 
-        <TabsContent value="profile" className="mt-4 space-y-4">
-          <Card className="premium-card">
-            <CardHeader className="pb-2"><CardTitle className="text-sm">Profile Information</CardTitle></CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center gap-4">
-                <Avatar className="w-16 h-16"><AvatarFallback className="text-lg bg-primary/10 text-primary">PS</AvatarFallback></Avatar>
-                <div><p className="font-semibold">Dr. Priya Sharma</p><p className="text-sm text-muted-foreground">Chief Sustainability Officer</p><Button size="sm" variant="outline" className="mt-2 h-7 text-xs">Change Avatar</Button></div>
-              </div>
-              <div className="grid md:grid-cols-2 gap-4">
-                {[{ label: "Full Name", value: "Dr. Priya Sharma" }, { label: "Email", value: "priya.sharma@campus.edu" }, { label: "Phone", value: "+91 98765 43210" }, { label: "Employee ID", value: "EMP-2024-001" }].map((f, i) => (
-                  <div key={i} className="space-y-1"><Label className="text-xs">{f.label}</Label><Input defaultValue={f.value} className="h-9 text-sm" /></div>
-                ))}
-              </div>
-              <div className="grid md:grid-cols-2 gap-4">
-                <div className="space-y-1"><Label className="text-xs">Role</Label><Select defaultValue="admin"><SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="admin">Administrator</SelectItem><SelectItem value="facility">Facility Manager</SelectItem><SelectItem value="finance">Finance Lead</SelectItem><SelectItem value="faculty">Faculty</SelectItem></SelectContent></Select></div>
-                <div className="space-y-1"><Label className="text-xs">Department</Label><Select defaultValue="sustainability"><SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="sustainability">Sustainability Office</SelectItem><SelectItem value="facilities">Facilities</SelectItem><SelectItem value="finance">Finance</SelectItem><SelectItem value="it">IT</SelectItem></SelectContent></Select></div>
-              </div>
-              <Button className="premium-button">Save Profile</Button>
-            </CardContent>
-          </Card>
-        </TabsContent>
+function savePrefs(userId: string, section: string, value: unknown) {
+  localStorage.setItem(prefsKey(userId, section), JSON.stringify(value));
+}
 
-        <TabsContent value="notifications" className="mt-4 space-y-4">
-          <Card className="premium-card">
-            <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><Mail className="w-4 h-4" />Email Notifications</CardTitle></CardHeader>
-            <CardContent className="space-y-3">
-              {[{ label: "Critical anomaly alerts", desc: "Immediate email on critical system events", checked: true }, { label: "Daily energy summary", desc: "Morning digest of yesterday's performance", checked: true }, { label: "Weekly sustainability report", desc: "Comprehensive weekly metrics overview", checked: true }, { label: "Monthly executive brief", desc: "High-level performance summary for leadership", checked: false }, { label: "AI recommendation alerts", desc: "New optimization opportunities from AI engine", checked: true }].map((n, i) => (
-                <div key={i} className="flex items-center justify-between py-2">
-                  <div><p className="text-sm font-medium">{n.label}</p><p className="text-xs text-muted-foreground">{n.desc}</p></div>
-                  <Switch defaultChecked={n.checked} />
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-          <Card className="premium-card">
-            <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><Bell className="w-4 h-4" />Push Notifications</CardTitle></CardHeader>
-            <CardContent className="space-y-3">
-              {[{ label: "Real-time critical alerts", checked: true }, { label: "Equipment failure warnings", checked: true }, { label: "Challenge milestones", checked: false }, { label: "Community activity", checked: false }].map((n, i) => (
-                <div key={i} className="flex items-center justify-between py-2">
-                  <p className="text-sm">{n.label}</p><Switch defaultChecked={n.checked} />
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-        </TabsContent>
+// ── Default preference shapes ──────────────────────────────────────────────
+const defaultNotif = {
+  emailCritical: true,
+  emailDaily: true,
+  emailWeekly: false,
+  emailMonthly: true,
+  emailAI: true,
+  pushCritical: true,
+  pushEquipment: true,
+  pushChallenge: false,
+  pushCommunity: false,
+};
 
-        <TabsContent value="display" className="mt-4 space-y-4">
-          <Card className="premium-card">
-            <CardHeader className="pb-2"><CardTitle className="text-sm">Display Preferences</CardTitle></CardHeader>
-            <CardContent className="space-y-5">
-              <div className="space-y-2">
-                <Label className="text-xs">Data Density</Label>
-                <Select defaultValue="comfortable"><SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="compact">Compact</SelectItem><SelectItem value="comfortable">Comfortable</SelectItem><SelectItem value="spacious">Spacious</SelectItem></SelectContent></Select>
-              </div>
-              <div className="space-y-3">
-                {[{ label: "Executive Mode", desc: "Simplified view with key metrics only" }, { label: "Operational Mode", desc: "Detailed view with all data points" }, { label: "Show data confidence indicators", desc: "Display confidence scores on all metrics" }, { label: "Animate chart transitions", desc: "Smooth animations on data updates" }].map((p, i) => (
-                  <div key={i} className="flex items-center justify-between">
-                    <div><p className="text-sm font-medium">{p.label}</p><p className="text-xs text-muted-foreground">{p.desc}</p></div>
-                    <Switch defaultChecked={i < 2 ? false : true} />
+const defaultDisplay = {
+  executiveMode: false,
+  showConfidence: true,
+  animateCharts: true,
+};
+
+const defaultAI = {
+  autonomousHVAC: false,
+  predictiveMaintenance: true,
+  autoOptimizeSolar: true,
+  smartLoadBalancing: false,
+  automationSuggestions: true,
+};
+
+const Settings = () => {
+  const { user } = useAuth();
+  const { data: sessions = [], isLoading: loadingSessions } = useCurrentUserSessions(
+    user?.id ?? null,
+  );
+  const { mutate: logout } = useLogout();
+  const { toast } = useToast();
+
+  // ── Pref state — initialised lazily after user resolves ───────────────
+  const [notifPrefs, setNotifPrefs] = useState(defaultNotif);
+  const [displayPrefs, setDisplayPrefs] = useState(defaultDisplay);
+  const [aiPrefs, setAiPrefs] = useState(defaultAI);
+  const [prefsLoaded, setPrefsLoaded] = useState(false);
+
+  // Load saved prefs once the user is known
+  useEffect(() => {
+    if (user?.id && !prefsLoaded) {
+      setNotifPrefs(loadPrefs(user.id, "notifications", defaultNotif));
+      setDisplayPrefs(loadPrefs(user.id, "display", defaultDisplay));
+      setAiPrefs(loadPrefs(user.id, "ai", defaultAI));
+      setPrefsLoaded(true);
+    }
+  }, [user?.id, prefsLoaded]);
+
+  const togglePref = <T extends Record<string, boolean>>(
+    setter: React.Dispatch<React.SetStateAction<T>>,
+    key: string,
+  ) => setter((prev) => ({ ...prev, [key]: !prev[key as keyof T] }));
+
+  const handleSavePreferences = (section: "notifications" | "display" | "ai") => {
+    if (!user?.id) {
+      toast({ title: "Not signed in", variant: "destructive" });
+      return;
+    }
+    const value = section === "notifications" ? notifPrefs : section === "display" ? displayPrefs : aiPrefs;
+    savePrefs(user.id, section, value);
+    toast({ title: "Preferences saved ✓", description: `Your ${section} preferences have been updated.` });
+  };
+
+  return (
+    <DashboardLayout title="Settings" breadcrumb="System · Settings">
+      <div className="space-y-6 max-w-4xl">
+        <Tabs defaultValue="profile">
+          <TabsList className="mb-2">
+            <TabsTrigger value="profile">Profile</TabsTrigger>
+            <TabsTrigger value="notifications">Notifications</TabsTrigger>
+            <TabsTrigger value="display">Display</TabsTrigger>
+            <TabsTrigger value="ai">AI Preferences</TabsTrigger>
+            <TabsTrigger value="security">Security</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="profile" className="mt-4 space-y-4">
+            <Card className="premium-card">
+              <CardHeader>
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <User className="w-4 h-4 text-primary" /> Account
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {!user ? (
+                  <div className="space-y-3">
+                    {Array(4).fill(0).map((_, i) => <Skeleton key={i} className="h-9 w-full" />)}
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex items-center gap-4 mb-4">
+                      <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center text-2xl font-bold text-primary">
+                        {(user.name ?? user.email)?.[0]?.toUpperCase() ?? "?"}
+                      </div>
+                      <div>
+                        <p className="font-semibold text-foreground">{user.name ?? user.email}</p>
+                        <p className="text-xs text-muted-foreground">{user.email}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          UID: {user.id}
+                        </p>
+                        <Badge variant="outline" className="mt-1 text-xs">
+                          {user.role_name ?? "authenticated"}
+                        </Badge>
+                      </div>
+                    </div>
+                    <Separator />
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Email</Label>
+                        <Input value={user.email ?? ""} readOnly className="bg-muted/30 text-sm" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Role</Label>
+                        <Input value={user.role_name ?? "—"} readOnly className="bg-muted/30 text-sm" />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Auth Source</Label>
+                        <Input
+                          value={user.source === "supabase" ? "Supabase Auth" : "DB Account"}
+                          readOnly
+                          className="bg-muted/30 text-sm"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">User ID</Label>
+                        <Input
+                          value={user.id}
+                          readOnly
+                          className="bg-muted/30 text-sm font-mono text-xs"
+                        />
+                      </div>
+                    </div>
+                    <div className="pt-2">
+                      <Button variant="destructive" size="sm" onClick={() => logout()} className="flex items-center gap-2">
+                        <LogOut className="w-4 h-4" /> Sign Out
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="notifications" className="mt-4 space-y-4">
+            <Card className="premium-card">
+              <CardHeader>
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Bell className="w-4 h-4 text-primary" /> Email Notifications
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {([
+                  ["emailCritical", "Critical Alerts", "Immediate alerts for critical energy or safety events"],
+                  ["emailDaily", "Daily Summary", "End-of-day energy and carbon digest"],
+                  ["emailWeekly", "Weekly Report", "7-day sustainability performance summary"],
+                  ["emailMonthly", "Monthly Brief", "Monthly trend analysis and recommendations"],
+                  ["emailAI", "AI Recommendations", "New AI-generated optimisation suggestions"],
+                ] as [string, string, string][]).map(([key, label, desc]) => (
+                  <div key={key} className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium">{label}</p>
+                      <p className="text-xs text-muted-foreground">{desc}</p>
+                    </div>
+                    <Switch checked={(notifPrefs as any)[key]} onCheckedChange={() => togglePref(setNotifPrefs, key)} />
                   </div>
                 ))}
-              </div>
-              <div className="space-y-2">
-                <Label className="text-xs">Default Dashboard Time Range</Label>
-                <Select defaultValue="24h"><SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="1h">Last Hour</SelectItem><SelectItem value="24h">Last 24 Hours</SelectItem><SelectItem value="7d">Last 7 Days</SelectItem><SelectItem value="30d">Last 30 Days</SelectItem></SelectContent></Select>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="security" className="mt-4 space-y-4">
-          <Card className="premium-card">
-            <CardHeader className="pb-2"><CardTitle className="text-sm">Password</CardTitle></CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-1"><Label className="text-xs">Current Password</Label><Input type="password" placeholder="••••••••" className="h-9 text-sm" /></div>
-              <div className="grid md:grid-cols-2 gap-4">
-                <div className="space-y-1"><Label className="text-xs">New Password</Label><Input type="password" placeholder="••••••••" className="h-9 text-sm" /></div>
-                <div className="space-y-1"><Label className="text-xs">Confirm Password</Label><Input type="password" placeholder="••••••••" className="h-9 text-sm" /></div>
-              </div>
-              <Button className="premium-button" size="sm">Update Password</Button>
-            </CardContent>
-          </Card>
-          <Card className="premium-card">
-            <CardHeader className="pb-2"><CardTitle className="text-sm">Two-Factor Authentication</CardTitle></CardHeader>
-            <CardContent>
-              <div className="flex items-center justify-between">
-                <div><p className="text-sm">Enable 2FA</p><p className="text-xs text-muted-foreground">Add an extra layer of security to your account</p></div>
-                <Switch />
-              </div>
-            </CardContent>
-          </Card>
-          <Card className="premium-card">
-            <CardHeader className="pb-2"><CardTitle className="text-sm">Active Sessions</CardTitle></CardHeader>
-            <CardContent className="space-y-3">
-              {sessions.map((s, i) => (
-                <div key={i} className={`flex items-center gap-3 p-3 rounded-xl ${s.current ? "bg-primary/5 border border-primary/10" : "bg-muted/30"}`}>
-                  <s.icon className="w-5 h-5 text-muted-foreground" />
-                  <div className="flex-1"><p className="text-sm font-medium">{s.device}</p><p className="text-xs text-muted-foreground">{s.location} · {s.time}</p></div>
-                  {s.current ? <Badge variant="outline" className="text-xs">Current</Badge> : <Button size="sm" variant="ghost" className="h-7 text-xs text-destructive">Revoke</Button>}
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="ai" className="mt-4 space-y-4">
-          <Card className="premium-card">
-            <CardHeader className="pb-2"><CardTitle className="text-sm flex items-center gap-2"><Brain className="w-4 h-4" />AI Behavior</CardTitle></CardHeader>
-            <CardContent className="space-y-5">
-              <div className="space-y-2">
-                <div className="flex items-center justify-between"><Label className="text-xs">Recommendation Aggressiveness</Label><span className="text-xs text-muted-foreground">Balanced</span></div>
-                <Slider defaultValue={[50]} max={100} step={10} />
-                <div className="flex justify-between text-[10px] text-muted-foreground"><span>Conservative</span><span>Balanced</span><span>Aggressive</span></div>
-              </div>
-              <div className="space-y-3">
-                {[{ label: "Automation Suggestions", desc: "AI suggests automated interventions", checked: true }, { label: "Autonomous HVAC Control", desc: "Allow AI to make HVAC adjustments automatically", checked: false }, { label: "Predictive Maintenance Alerts", desc: "AI predicts and flags maintenance needs", checked: true }, { label: "Auto-optimize Solar Angles", desc: "AI adjusts panel tracking in real-time", checked: true }, { label: "Smart Load Balancing", desc: "AI manages building load distribution", checked: false }].map((p, i) => (
-                  <div key={i} className="flex items-center justify-between py-1">
-                    <div><p className="text-sm font-medium">{p.label}</p><p className="text-xs text-muted-foreground">{p.desc}</p></div>
-                    <Switch defaultChecked={p.checked} />
+              </CardContent>
+            </Card>
+            <Card className="premium-card">
+              <CardHeader>
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Smartphone className="w-4 h-4 text-primary" /> Push Notifications
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {([
+                  ["pushCritical", "Critical Alerts", "Instant push for P1 incidents"],
+                  ["pushEquipment", "Equipment Warnings", "HVAC, solar, and equipment fault alerts"],
+                  ["pushChallenge", "Challenge Milestones", "Eco-challenge progress and completions"],
+                  ["pushCommunity", "Community Activity", "New events, posts, and leaderboard changes"],
+                ] as [string, string, string][]).map(([key, label, desc]) => (
+                  <div key={key} className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium">{label}</p>
+                      <p className="text-xs text-muted-foreground">{desc}</p>
+                    </div>
+                    <Switch checked={(notifPrefs as any)[key]} onCheckedChange={() => togglePref(setNotifPrefs, key)} />
                   </div>
                 ))}
-              </div>
-            </CardContent>
-          </Card>
-          <Card className="premium-card">
-            <CardHeader className="pb-2"><CardTitle className="text-sm">AI Model Preferences</CardTitle></CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-1"><Label className="text-xs">Preferred Forecast Model</Label><Select defaultValue="lstm"><SelectTrigger className="h-9 text-sm"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="lstm">LSTM (Most Accurate)</SelectItem><SelectItem value="xgboost">XGBoost (Fastest)</SelectItem><SelectItem value="ensemble">Ensemble (Balanced)</SelectItem></SelectContent></Select></div>
-              <div className="space-y-1"><Label className="text-xs">Confidence Threshold (%)</Label><Input type="number" defaultValue="85" className="h-9 text-sm" /></div>
-              <Button className="premium-button" size="sm">Save AI Preferences</Button>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+              </CardContent>
+            </Card>
+            <Button className="premium-button gap-2" onClick={() => handleSavePreferences("notifications")}>
+              <Save className="w-4 h-4" />Save Notification Preferences
+            </Button>
+          </TabsContent>
 
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-        <Clock className="w-3 h-3" /><span>Last saved: 5 minutes ago</span>
-        <span className="mx-2">•</span><Shield className="w-3 h-3" /><span>Encryption: AES-256</span>
+          <TabsContent value="display" className="mt-4 space-y-4">
+            <Card className="premium-card">
+              <CardHeader>
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Monitor className="w-4 h-4 text-primary" /> Display Preferences
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {([
+                  ["executiveMode", "Executive Mode", "Simplified high-level view for leadership"],
+                  ["showConfidence", "Show Confidence Indicators", "Display AI prediction confidence scores"],
+                  ["animateCharts", "Animate Chart Transitions", "Smooth animations on data updates"],
+                ] as [string, string, string][]).map(([key, label, desc]) => (
+                  <div key={key} className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium">{label}</p>
+                      <p className="text-xs text-muted-foreground">{desc}</p>
+                    </div>
+                    <Switch checked={(displayPrefs as any)[key]} onCheckedChange={() => togglePref(setDisplayPrefs, key)} />
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+            <Button className="premium-button gap-2" onClick={() => handleSavePreferences("display")}>
+              <Save className="w-4 h-4" />Save Display Preferences
+            </Button>
+          </TabsContent>
+
+          <TabsContent value="ai" className="mt-4 space-y-4">
+            <Card className="premium-card">
+              <CardHeader>
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Brain className="w-4 h-4 text-primary" /> AI & Automation
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {([
+                  ["automationSuggestions", "Automation Suggestions", "Let AI suggest automated actions"],
+                  ["autonomousHVAC", "Autonomous HVAC Control", "AI automatically adjusts HVAC setpoints"],
+                  ["predictiveMaintenance", "Predictive Maintenance Alerts", "Early warnings before equipment failure"],
+                  ["autoOptimizeSolar", "Auto-Optimise Solar", "Dynamically adjust solar inverter settings"],
+                  ["smartLoadBalancing", "Smart Load Balancing", "Shift loads to reduce peak demand automatically"],
+                ] as [string, string, string][]).map(([key, label, desc]) => (
+                  <div key={key} className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium">{label}</p>
+                      <p className="text-xs text-muted-foreground">{desc}</p>
+                    </div>
+                    <Switch checked={(aiPrefs as any)[key]} onCheckedChange={() => togglePref(setAiPrefs, key)} />
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+            <Button className="premium-button gap-2" onClick={() => handleSavePreferences("ai")}>
+              <Save className="w-4 h-4" />Save AI Preferences
+            </Button>
+          </TabsContent>
+
+          <TabsContent value="security" className="mt-4 space-y-4">
+            <Card className="premium-card">
+              <CardHeader>
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Shield className="w-4 h-4 text-primary" /> Active Sessions
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {loadingSessions ? (
+                  <div className="space-y-3">
+                    {Array(3).fill(0).map((_, i) => <Skeleton key={i} className="h-16 w-full" />)}
+                  </div>
+                ) : sessions.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-6">No active sessions found</p>
+                ) : (
+                  <div className="space-y-3">
+                    {(sessions as any[]).map((s, i) => (
+                      <motion.div
+                        key={s.id ?? i}
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: i * 0.05 }}
+                        className="flex items-center justify-between p-3 rounded-lg bg-muted/30 border border-border/40"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+                            <Globe className="w-4 h-4 text-primary" />
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <p className="text-sm font-medium">{s.device ?? "Unknown Device"}</p>
+                              {s.is_current && (
+                                <Badge className="text-[10px] px-1.5 py-0 bg-green-500/20 text-green-600 border-green-500/30">
+                                  Current
+                                </Badge>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-3 mt-0.5">
+                              {s.location && (
+                                <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                                  <MapPin className="w-3 h-3" />{s.location}
+                                </span>
+                              )}
+                              {s.ip_address && (
+                                <span className="text-xs text-muted-foreground">{s.ip_address}</span>
+                              )}
+                              <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                                <Clock className="w-3 h-3" />
+                                {new Date(s.created_at).toLocaleString("en-IN", { dateStyle: "short", timeStyle: "short" })}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1.5 text-xs text-green-500">
+                          <CheckCircle2 className="w-3.5 h-3.5" /> Active
+                        </div>
+                      </motion.div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+            <Card className="premium-card border-destructive/30">
+              <CardHeader>
+                <CardTitle className="text-sm flex items-center gap-2 text-destructive">
+                  <XCircle className="w-4 h-4" /> Danger Zone
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium">Sign out of all sessions</p>
+                    <p className="text-xs text-muted-foreground">Revokes all active tokens except this one</p>
+                  </div>
+                  <Button variant="outline" size="sm" className="border-destructive/40 text-destructive hover:bg-destructive/10">
+                    Sign Out All
+                  </Button>
+                </div>
+                <Separator />
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium">Sign Out</p>
+                    <p className="text-xs text-muted-foreground">End your current session</p>
+                  </div>
+                  <Button variant="destructive" size="sm" onClick={() => logout()} className="flex items-center gap-2">
+                    <LogOut className="w-4 h-4" /> Sign Out
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
       </div>
-    </div>
-  </DashboardLayout>
-);
+    </DashboardLayout>
+  );
+};
 
 export default Settings;

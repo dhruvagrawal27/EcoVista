@@ -1,0 +1,1 @@
+{"features": ["gross_demand_kw", "hour", "dow", "temperature", "solar_irr", "demand_roll_mean_24", "demand_roll_std_24", "demand_vs_mean"]}

@@ -1,10 +1,37 @@
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
-import { renewableVsGrid } from "@/lib/mock-data";
+import { useCampusContext } from "@/context/CampusContext";
+import { useGridState } from "@/hooks/useEnergy";
+import { Skeleton } from "@/components/ui/skeleton";
 
 const colors = ["hsl(161, 93%, 30%)", "hsl(82, 77%, 45%)", "hsl(200, 60%, 50%)"];
 
 const RenewableGrid = () => {
-  const renewablePercent = renewableVsGrid.filter(r => r.name !== "Grid").reduce((a, b) => a + b.value, 0);
+  const { campusId } = useCampusContext();
+  const { data: gridState, isLoading } = useGridState(campusId);
+
+  const solarKw = gridState?.solar_current_kw ?? 0;
+  const windKw = gridState?.wind_current_kw ?? 0;
+  const gridKw = gridState?.grid_import_kw ?? 0;
+  const total = solarKw + windKw + gridKw || 1;
+
+  const renewableVsGrid = [
+    { name: "Solar", value: Math.round((solarKw / total) * 100) },
+    { name: "Wind", value: Math.round((windKw / total) * 100) },
+    { name: "Grid", value: Math.round((gridKw / total) * 100) },
+  ];
+
+  const renewablePercent = renewableVsGrid
+    .filter((r) => r.name !== "Grid")
+    .reduce((a, b) => a + b.value, 0);
+
+  if (isLoading) {
+    return (
+      <div className="glass-card grain-overlay p-5">
+        <Skeleton className="h-5 w-40 mb-4" />
+        <Skeleton className="h-[140px] w-full rounded-xl" />
+      </div>
+    );
+  }
 
   return (
     <div className="glass-card grain-overlay p-5">

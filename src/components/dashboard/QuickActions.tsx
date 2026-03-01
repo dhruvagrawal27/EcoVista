@@ -1,18 +1,31 @@
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
-import { Zap, Leaf, Brain, TrendingUp, FileText } from "lucide-react";
-import { quickActions } from "@/lib/mock-data";
+import { Zap, Leaf, Brain, TrendingUp, FileText, Sun } from "lucide-react";
+import { useAuth } from "@/context/AuthContext";
 
-const iconMap: Record<string, React.ComponentType<any>> = {
-  Zap, Leaf, Brain, TrendingUp, FileText,
+const ALL_QUICK_ACTIONS = [
+  { id: 1, label: "Energy Dashboard", icon: "Zap",     route: "/energy",     color: "chart-1" },
+  { id: 2, label: "Carbon Tracker",   icon: "Leaf",    route: "/carbon",     color: "chart-2" },
+  { id: 3, label: "AI Recommendations", icon: "Brain", route: "/insights",   color: "chart-3" },
+  { id: 4, label: "Financial Insights", icon: "TrendingUp", route: "/finance", color: "chart-4" },
+  { id: 5, label: "Generate Report",  icon: "FileText", route: "/reports",   color: "chart-5" },
+  { id: 6, label: "Renewables",       icon: "Sun",     route: "/renewables", color: "chart-4" },
+];
+
+const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
+  Zap, Leaf, Brain, TrendingUp, FileText, Sun,
 };
 
 const QuickActions = () => {
   const navigate = useNavigate();
+  const { canAccess } = useAuth();
+
+  // Only show actions whose route the current role is allowed to access
+  const visibleActions = ALL_QUICK_ACTIONS.filter(a => canAccess(a.route));
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-      {quickActions.map((action, i) => {
+      {visibleActions.map((action, i) => {
         const Icon = iconMap[action.icon];
         return (
           <motion.button

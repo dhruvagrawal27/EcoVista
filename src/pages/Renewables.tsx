@@ -1,159 +1,249 @@
 import DashboardLayout from "@/components/layout/DashboardLayout";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
+import { Skeleton } from "@/components/ui/skeleton";
 import { motion } from "framer-motion";
-import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
-import { Sun, Wind, Battery, Zap, TrendingUp, CloudSun, Gauge } from "lucide-react";
+import {
+  AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid,
+  Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend,
+} from "recharts";
+import { Sun, Wind, Battery, Zap, Gauge, Info } from "lucide-react";
+import { useCampusContext } from "@/context/CampusContext";
+import { useAuth } from "@/context/AuthContext";
+import type { RoleName } from "@/context/AuthContext";
+import { useToast } from "@/hooks/use-toast";
+import { useSolarArrays, useRenewableMonthlyGeneration, useLatestGridState, useUpdateSolarArrayStatus } from "@/hooks/useRenewables";
+import { useEnergyForecasts } from "@/hooks/useEnergy";
 
-const solarHourly = Array.from({ length: 24 }, (_, i) => ({
-  hour: `${i}:00`,
-  generation: Math.round(i >= 6 && i <= 18 ? Math.sin(((i - 6) / 12) * Math.PI) * 1200 + Math.random() * 100 : 0),
-  consumption: Math.round(1800 + Math.sin((i - 8) / 4) * 600),
-}));
+const ROLE_INFO: Partial<Record<NonNullable<RoleName>, { color: string; msg: string }>> = {
+  Admin: { color: "text-violet-400 border-violet-500/20", msg: "Full access — update solar array status from this page." },
+  "Facility Manager": { color: "text-blue-400 border-blue-500/20", msg: "You can update solar array status and monitor renewable output." },
+  Finance: { color: "text-emerald-400 border-emerald-500/20", msg: "View-only — renewable generation data and grid offset metrics." },
+  Faculty: { color: "text-yellow-400 border-yellow-500/20", msg: "View-only — renewable energy overview." },
+};
 
-const monthlyGeneration = Array.from({ length: 12 }, (_, i) => ({
-  month: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][i],
-  solar: Math.round(14000 + Math.sin((i - 3) / 3) * 5000 + Math.random() * 1000),
-  wind: Math.round(1200 + Math.cos(i / 2) * 600 + Math.random() * 200),
-}));
+const ARRAY_STATUSES = ["optimal", "degraded", "offline", "maintenance"] as const;
+type ArrayStatus = typeof ARRAY_STATUSES[number];
 
-const panelHealth = [
-  { name: "Array A (Main)", panels: 480, efficiency: 94, status: "optimal" as const },
-  { name: "Array B (Library)", panels: 320, efficiency: 91, status: "optimal" as const },
-  { name: "Array C (Engineering)", panels: 280, efficiency: 72, status: "degraded" as const },
-  { name: "Array D (Hostel)", panels: 200, efficiency: 88, status: "optimal" as const },
-  { name: "Array E (Sports)", panels: 120, efficiency: 95, status: "optimal" as const },
-];
+const STATUS_COLORS: Record<ArrayStatus, string> = {
+  optimal: "text-emerald-400 border-emerald-500/30",
+  degraded: "text-yellow-400 border-yellow-500/30",
+  offline: "text-red-400 border-red-500/30",
+  maintenance: "text-blue-400 border-blue-500/30",
+};
 
-const energyMix = [
-  { name: "Solar", value: 38, color: "hsl(var(--chart-4))" },
-  { name: "Wind", value: 5, color: "hsl(var(--chart-5))" },
-  { name: "Grid", value: 57, color: "hsl(var(--chart-1))" },
-];
+const Renewables = () => {
+  const { campusId } = useCampusContext();
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const role = user?.role_name as RoleName | undefined;
+  const canManage = role === "Admin" || role === "Facility Manager";
 
-const Renewables = () => (
-  <DashboardLayout title="Renewable Energy" breadcrumb="Renewables · Solar & Wind">
-    <div className="max-w-[1400px] mx-auto space-y-4">
-      <div className="flex items-center gap-3 text-xs text-muted-foreground">
-        <Badge variant="outline" className="gap-1"><Sun className="w-3 h-3" /> Renewables</Badge>
-        <span>Last Updated: Just now</span>
-        <Badge variant="outline" className="gap-1 ml-auto">43% Renewable Share</Badge>
-      </div>
+  const { data: arrays = [], isLoading: loadingArrays } = useSolarArrays(campusId);
+  const { data: monthly = [], isLoading: loadingMonthly } = useRenewableMonthlyGeneration(campusId, 12);
+  const { data: grid, isLoading: loadingGrid } = useLatestGridState(campusId);
+  const { data: forecasts = [], isLoading: loadingForecasts } = useEnergyForecasts(campusId, 24);
+  const updateArrayStatus = useUpdateSolarArrayStatus(campusId);
 
-      {/* KPI Strip */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {[
-          { label: "Solar Today", value: "18.4 MWh", icon: Sun, trend: 8.2, color: "chart-4" },
-          { label: "Wind Today", value: "1.2 MWh", icon: Wind, trend: -2.1, color: "chart-5" },
-          { label: "Battery SOC", value: "72%", icon: Battery, trend: null, color: "chart-2" },
-          { label: "Grid Offset", value: "43%", icon: Zap, trend: 5.4, color: "chart-1" },
-        ].map(item => (
-          <motion.div key={item.label} whileHover={{ y: -2 }}>
-            <Card className="glass-card grain-overlay">
-              <CardContent className="pt-4 pb-3 text-center">
-                <item.icon className={`w-5 h-5 mx-auto mb-1 text-[hsl(var(--${item.color}))]`} />
-                <p className="text-xl font-bold text-foreground">{item.value}</p>
-                <p className="text-xs text-muted-foreground">{item.label}</p>
-                {item.trend && <Badge variant="outline" className={`text-[10px] h-4 mt-1 ${item.trend > 0 ? "text-[hsl(var(--chart-2))]" : "text-destructive"}`}>{item.trend > 0 ? "+" : ""}{item.trend}%</Badge>}
-              </CardContent>
-            </Card>
-          </motion.div>
-        ))}
-      </div>
+  const solarKw = grid?.solar_current_kw ?? 0;
+  const solarCap = grid?.solar_capacity_kw ?? 1;
+  const windKw = grid?.wind_current_kw ?? 0;
+  const batteryPct = grid?.battery_charge_pct ?? 0;
+  const totalDemand = grid?.total_demand_kw ?? 1;
+  const renewableShare = totalDemand > 0 ? Math.round(((solarKw + windKw) / totalDemand) * 100) : 0;
 
-      {/* Solar Generation vs Consumption */}
-      <Card className="glass-card grain-overlay">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm">Solar Generation vs Campus Consumption — Today</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <ResponsiveContainer width="100%" height={280}>
-            <AreaChart data={solarHourly}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-              <XAxis dataKey="hour" tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
-              <YAxis tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
-              <Tooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }} />
-              <Area dataKey="generation" fill="hsl(var(--chart-4) / 0.2)" stroke="hsl(var(--chart-4))" strokeWidth={2} name="Solar Generation (kW)" />
-              <Area dataKey="consumption" fill="hsl(var(--chart-1) / 0.1)" stroke="hsl(var(--chart-1))" strokeWidth={1.5} strokeDasharray="5 3" name="Consumption (kW)" />
-            </AreaChart>
-          </ResponsiveContainer>
-        </CardContent>
-      </Card>
+  const solarHourly = forecasts.map(f => ({
+    hour: new Date(f.forecast_at).getHours() + "h",
+    generation: f.predicted_kw ?? 0,
+    consumption: (f.actual_kw ?? f.predicted_kw ?? 0) * 1.4,
+  }));
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {/* Energy Mix */}
+  const monthlyData = monthly.map(m => ({
+    month: new Date(m.gen_month + "-01").toLocaleString("default", { month: "short" }),
+    solar: m.solar_kwh ?? 0,
+    wind: m.wind_kwh ?? 0,
+  }));
+
+  const latestMonthly = monthly[monthly.length - 1];
+  const gridOffsetPct = latestMonthly?.grid_offset_pct ?? renewableShare;
+
+  const energyMix = [
+    { name: "Solar", value: Math.round(solarKw), color: "hsl(var(--chart-4))" },
+    { name: "Wind", value: Math.round(windKw), color: "hsl(var(--chart-5))" },
+    { name: "Grid", value: Math.max(0, Math.round((grid?.grid_import_kw ?? 0))), color: "hsl(var(--chart-1))" },
+  ].filter(e => e.value > 0);
+
+  const ri = role ? (ROLE_INFO[role] ?? null) : null;
+
+  return (
+    <DashboardLayout title="Renewable Energy" breadcrumb="Renewables · Solar & Wind">
+      <div className="max-w-[1400px] mx-auto space-y-4">
+        {/* Role banner */}
+        {ri && (
+          <div className={`flex items-start gap-2 rounded-lg border px-3 py-2 text-xs ${ri.color}`}>
+            <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+            <span><strong>{role}</strong> — {ri.msg}</span>
+          </div>
+        )}
+
+        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+          <Badge variant="outline" className="gap-1"><Sun className="w-3 h-3" /> Renewables</Badge>
+          <span>Live Grid Data</span>
+          <Badge variant="outline" className="gap-1 ml-auto">{renewableShare}% Renewable Share</Badge>
+        </div>
+
+        {/* KPI Strip */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {loadingGrid ? Array(4).fill(0).map((_, i) => <Skeleton key={i} className="h-24" />) : [
+            { label: "Solar Now", value: `${solarKw.toFixed(1)} kW`, icon: Sun, color: "chart-4" },
+            { label: "Wind Now", value: `${windKw.toFixed(1)} kW`, icon: Wind, color: "chart-5" },
+            { label: "Battery SOC", value: `${batteryPct.toFixed(0)}%`, icon: Battery, color: "chart-2" },
+            { label: "Grid Offset", value: `${renewableShare}%`, icon: Zap, color: "chart-1" },
+          ].map(item => (
+            <motion.div key={item.label} whileHover={{ y: -2 }}>
+              <Card className="glass-card grain-overlay">
+                <CardContent className="pt-4 pb-3 text-center">
+                  <item.icon className={`w-5 h-5 mx-auto mb-1 text-[hsl(var(--${item.color}))]`} />
+                  <p className="text-xl font-bold text-foreground">{item.value}</p>
+                  <p className="text-xs text-muted-foreground">{item.label}</p>
+                </CardContent>
+              </Card>
+            </motion.div>
+          ))}
+        </div>
+
+        {/* Solar Generation vs Consumption Forecast */}
         <Card className="glass-card grain-overlay">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Energy Source Mix</CardTitle>
+            <CardTitle className="text-sm">Solar Generation Forecast vs Consumption — Next 24h</CardTitle>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={200}>
-              <PieChart>
-                <Pie data={energyMix} cx="50%" cy="50%" innerRadius={45} outerRadius={70} dataKey="value" strokeWidth={2} stroke="hsl(var(--card))">
-                  {energyMix.map((e, i) => <Cell key={i} fill={e.color} />)}
-                </Pie>
-                <Tooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }} />
-              </PieChart>
-            </ResponsiveContainer>
-            <div className="flex justify-center gap-4 mt-1">
-              {energyMix.map(e => (
-                <div key={e.name} className="flex items-center gap-1 text-xs">
-                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: e.color }} />
-                  <span className="text-muted-foreground">{e.name}: {e.value}%</span>
-                </div>
-              ))}
-            </div>
+            {loadingForecasts ? <Skeleton className="h-64 w-full" /> : (
+              <ResponsiveContainer width="100%" height={260}>
+                <AreaChart data={solarHourly}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                  <XAxis dataKey="hour" tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
+                  <YAxis tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
+                  <Tooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }} />
+                  <Area dataKey="generation" fill="hsl(var(--chart-4) / 0.2)" stroke="hsl(var(--chart-4))" strokeWidth={2} name="Generation (kW)" />
+                  <Area dataKey="consumption" fill="hsl(var(--chart-1) / 0.1)" stroke="hsl(var(--chart-1))" strokeWidth={1.5} strokeDasharray="5 3" name="Consumption (kW)" />
+                </AreaChart>
+              </ResponsiveContainer>
+            )}
           </CardContent>
         </Card>
 
-        {/* Monthly Generation */}
-        <Card className="glass-card grain-overlay md:col-span-2">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Energy Mix */}
+          <Card className="glass-card grain-overlay">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Live Energy Mix</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {loadingGrid ? <Skeleton className="h-48 w-full" /> : energyMix.length > 0 ? (
+                <>
+                  <ResponsiveContainer width="100%" height={180}>
+                    <PieChart>
+                      <Pie data={energyMix} cx="50%" cy="50%" innerRadius={45} outerRadius={70} dataKey="value" strokeWidth={2} stroke="hsl(var(--card))">
+                        {energyMix.map((e, i) => <Cell key={i} fill={e.color} />)}
+                      </Pie>
+                      <Tooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div className="flex flex-wrap justify-center gap-3 mt-1">
+                    {energyMix.map(e => (
+                      <div key={e.name} className="flex items-center gap-1 text-xs">
+                        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: e.color }} />
+                        <span className="text-muted-foreground">{e.name}: {e.value} kW</span>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : <p className="text-xs text-muted-foreground text-center py-8">No live data</p>}
+            </CardContent>
+          </Card>
+
+          {/* Monthly Generation */}
+          <Card className="glass-card grain-overlay md:col-span-2">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm">Monthly Renewable Generation (kWh)</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {loadingMonthly ? <Skeleton className="h-48 w-full" /> : (
+                <ResponsiveContainer width="100%" height={200}>
+                  <BarChart data={monthlyData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                    <XAxis dataKey="month" tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
+                    <YAxis tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
+                    <Tooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }} />
+                    <Legend />
+                    <Bar dataKey="solar" fill="hsl(var(--chart-4))" radius={[4, 4, 0, 0]} name="Solar" />
+                    <Bar dataKey="wind" fill="hsl(var(--chart-5))" radius={[4, 4, 0, 0]} name="Wind" />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Solar Array Health */}
+        <Card className="glass-card grain-overlay">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Monthly Renewable Generation</CardTitle>
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Gauge className="w-4 h-4 text-primary" />Solar Array Health Monitor
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={monthlyGeneration}>
-                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                <XAxis dataKey="month" tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
-                <YAxis tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
-                <Tooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }} />
-                <Bar dataKey="solar" fill="hsl(var(--chart-4))" radius={[4, 4, 0, 0]} name="Solar (kWh)" />
-                <Bar dataKey="wind" fill="hsl(var(--chart-5))" radius={[4, 4, 0, 0]} name="Wind (kWh)" />
-              </BarChart>
-            </ResponsiveContainer>
+            {loadingArrays ? <Skeleton className="h-40 w-full" /> : arrays.length === 0 ? (
+              <p className="text-xs text-muted-foreground text-center py-8">No solar arrays found</p>
+            ) : (
+              <div className="space-y-3">
+                {arrays.map(a => {
+                  const eff = a.latest_reading?.efficiency_pct ?? 0;
+                  const status = (a.status ?? "optimal") as ArrayStatus;
+                  return (
+                    <div key={a.id} className="flex items-center gap-4 border border-border rounded-lg p-3">
+                      <div className="flex-1">
+                        <p className="text-xs font-medium text-foreground">{a.name}</p>
+                        <p className="text-[10px] text-muted-foreground">{a.panel_count ?? "?"} panels · {a.capacity_kw ?? "?"}kW capacity</p>
+                      </div>
+                      <div className="w-32">
+                        <Progress value={eff} className="h-2" />
+                      </div>
+                      <span className="text-xs font-bold text-foreground w-10 text-right">{eff.toFixed(0)}%</span>
+                      {canManage ? (
+                        <select
+                          value={status}
+                          disabled={updateArrayStatus.isPending}
+                          onChange={e => {
+                            updateArrayStatus.mutate(
+                              { id: a.id, status: e.target.value as ArrayStatus },
+                              {
+                                onSuccess: () => toast({ title: `Array status updated to ${e.target.value}` }),
+                                onError: (err) => toast({ title: "Error", description: (err as Error).message, variant: "destructive" }),
+                              }
+                            );
+                          }}
+                          className={`text-[10px] rounded-md border px-2 py-1 bg-background ${STATUS_COLORS[status]}`}
+                        >
+                          {ARRAY_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                      ) : (
+                        <Badge variant="outline" className={`text-[10px] h-4 ${STATUS_COLORS[status]}`}>
+                          {status}
+                        </Badge>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
-
-      {/* Panel Health */}
-      <Card className="glass-card grain-overlay">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm flex items-center gap-2"><Gauge className="w-4 h-4 text-primary" />Solar Array Health Monitor</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-3">
-            {panelHealth.map(p => (
-              <div key={p.name} className="flex items-center gap-4 border border-border rounded-lg p-3">
-                <div className="flex-1">
-                  <p className="text-xs font-medium text-foreground">{p.name}</p>
-                  <p className="text-[10px] text-muted-foreground">{p.panels} panels</p>
-                </div>
-                <div className="w-32">
-                  <Progress value={p.efficiency} className="h-2" />
-                </div>
-                <span className="text-xs font-bold text-foreground w-10 text-right">{p.efficiency}%</span>
-                <Badge variant="outline" className={`text-[10px] h-4 ${p.status === "optimal" ? "text-[hsl(var(--chart-2))]" : "text-destructive"}`}>
-                  {p.status}
-                </Badge>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  </DashboardLayout>
-);
+    </DashboardLayout>
+  );
+};
 
 export default Renewables;
